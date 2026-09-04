@@ -62,12 +62,13 @@ void main() {
   });
 
   test('Save and retrieve Biometric security setting', () async {
-    expect(storageService.isBiometricEnabled(), isFalse);
-
-    await storageService.setBiometricEnabled(true);
+    // Defaults to true so protection is enabled out of the box
     expect(storageService.isBiometricEnabled(), isTrue);
 
     await storageService.setBiometricEnabled(false);
     expect(storageService.isBiometricEnabled(), isFalse);
+
+    await storageService.setBiometricEnabled(true);
+    expect(storageService.isBiometricEnabled(), isTrue);
   });
 }

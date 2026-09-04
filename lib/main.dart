@@ -46,6 +46,7 @@ class AntigravityApp extends StatefulWidget {
 
 class _AntigravityAppState extends State<AntigravityApp> with WidgetsBindingObserver {
   late bool _isLocked;
+  bool _needsUnlock = false;
 
   @override
   void initState() {
@@ -62,11 +63,23 @@ class _AntigravityAppState extends State<AntigravityApp> with WidgetsBindingObse
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused) {
+    // Không thực hiện lock nếu hộp thoại sinh trắc học của hệ thống đang hiển thị
+    if (BiometricService.isAuthenticating) return;
+
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.inactive) {
       if (widget.storageService.isBiometricEnabled()) {
-        setState(() {
-          _isLocked = true;
-        });
+        _needsUnlock = true;
+      }
+    } else if (state == AppLifecycleState.resumed) {
+      if (_needsUnlock && widget.storageService.isBiometricEnabled()) {
+        _needsUnlock = false;
+        if (!_isLocked) {
+          setState(() {
+            _isLocked = true;
+          });
+        }
       }
     }
   }

@@ -34,7 +34,7 @@ class StorageService {
 
   // --- BIOMETRIC SECURITY ---
   bool isBiometricEnabled() {
-    return _prefs.getBool(_biometricEnabledKey) ?? false;
+    return _prefs.getBool(_biometricEnabledKey) ?? true;
   }
 
   Future<void> setBiometricEnabled(bool enabled) async {
