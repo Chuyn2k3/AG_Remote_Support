@@ -39,7 +39,17 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _biometricService = widget.biometricService ?? BiometricService();
     _loadSessions();
-    _refreshDeviceStatuses();
+    _initDeviceStatusesCacheFirst();
+  }
+
+  void _initDeviceStatusesCacheFirst() {
+    final Map<String, DeviceStatus> initialStatuses = {};
+    for (final s in _sessions) {
+      initialStatuses[s.id] = HeartbeatService.evaluateSessionStatus(s);
+    }
+    setState(() {
+      _deviceStatuses = initialStatuses;
+    });
   }
 
   void _loadSessions() {
@@ -138,7 +148,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ).then((_) {
         _loadSessions();
-        _refreshDeviceStatuses();
+        _initDeviceStatusesCacheFirst();
       });
     }
   }
@@ -840,7 +850,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ).then((_) {
                             _loadSessions();
-                            _refreshDeviceStatuses();
+                            _initDeviceStatusesCacheFirst();
                           });
                         },
                         onOpenInBrowser: () async {

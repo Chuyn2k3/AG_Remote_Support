@@ -13,7 +13,7 @@ enum DeviceStatus {
 }
 
 class HeartbeatService {
-  static const int defaultTimeoutMs = 6500;
+  static const int defaultTimeoutMs = 3500;
   static const String customUserAgent =
       'Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36';
 
@@ -61,6 +61,9 @@ class HeartbeatService {
           domStorageEnabled: true,
           thirdPartyCookiesEnabled: true,
           cacheEnabled: true,
+          cacheMode: CacheMode.LOAD_DEFAULT,
+          loadsImagesAutomatically: false,
+          blockNetworkImage: true,
           supportMultipleWindows: false,
           mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
           requestedWithHeaderOriginAllowList: <String>{},
@@ -120,14 +123,14 @@ class HeartbeatService {
                 confirmedDisconnected = false;
                 t.cancel();
                 if (!completer.isCompleted) completer.complete(DeviceStatus.online);
-              } else if (checks >= 10) {
+              } else if (checks >= 6) {
                 t.cancel();
                 if (!completer.isCompleted) {
                   completer.complete(DeviceStatus.online);
                 }
               }
             } catch (_) {
-              if (checks >= 10) {
+              if (checks >= 6) {
                 t.cancel();
                 if (!completer.isCompleted) completer.complete(DeviceStatus.offline);
               }
@@ -189,18 +192,14 @@ class HeartbeatService {
     final results = <String, DeviceStatus>{};
     if (sessions.isEmpty) return results;
 
-    final futures = sessions.map((session) async {
+    // Tuần tự probe từng session để tránh RAM spike và throttling
+    for (final session in sessions) {
       final status = await probeSession(
         session,
         timeoutMs: timeoutMs,
         storageService: storageService,
       );
-      return MapEntry(session.id, status);
-    });
-
-    final entries = await Future.wait(futures);
-    for (final entry in entries) {
-      results[entry.key] = entry.value;
+      results[session.id] = status;
     }
     return results;
   }
