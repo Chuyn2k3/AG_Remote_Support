@@ -24,6 +24,7 @@ class _VoicePromptModalState extends State<VoicePromptModal>
   String _selectedLocale = 'vi_VN';
   double _soundLevel = 0.0;
   String? _errorMessage;
+  String _statusMessage = 'Đang chuẩn bị micro...';
   late AnimationController _waveController;
 
   @override
@@ -47,22 +48,48 @@ class _VoicePromptModalState extends State<VoicePromptModal>
     HapticFeedback.lightImpact();
     setState(() {
       _errorMessage = null;
+      _statusMessage = 'Đang kết nối micro...';
       _isListening = true;
     });
 
     final isAvailable = await widget.speechService.initialize(
       onError: (err) {
-        if (mounted) {
-          setState(() {
-            _isListening = false;
-            _errorMessage = 'Lỗi nhận diện: ${err.errorMsg}';
-          });
+        if (!mounted) return;
+        debugPrint('VoicePromptModal SpeechError: ${err.errorMsg}');
+        String userFriendlyError = 'Lỗi nhận diện: ${err.errorMsg}';
+        final msg = err.errorMsg.toLowerCase();
+        if (msg.contains('no_match')) {
+          userFriendlyError = 'Chưa nhận diện rõ giọng nói. Hãy nói to và rõ ràng hơn.';
+        } else if (msg.contains('speech_timeout') || msg.contains('timeout')) {
+          userFriendlyError = 'Hết thời gian chờ. Chạm vào nút Micro để nói lại.';
+        } else if (msg.contains('audio') || msg.contains('audio_recording')) {
+          userFriendlyError = 'Lỗi thu âm micro. Vui lòng kiểm tra quyền hoặc khởi động lại app.';
+        } else if (msg.contains('permission')) {
+          userFriendlyError = 'Ứng dụng chưa được cấp quyền Microphone. Hãy cấp quyền trong Cài đặt.';
+        } else if (msg.contains('network') || msg.contains('server')) {
+          userFriendlyError = 'Dịch vụ giọng nói Google gặp sự cố mạng hoặc chưa tải ngôn ngữ.';
         }
+
+        setState(() {
+          _isListening = false;
+          _statusMessage = 'Đã dừng thu âm';
+          if (_recognizedText.trim().isEmpty) {
+            _errorMessage = userFriendlyError;
+          }
+        });
       },
       onStatus: (status) {
-        if (mounted && (status == 'done' || status == 'notListening')) {
+        debugPrint('VoicePromptModal onStatus: $status');
+        if (!mounted) return;
+        if (status == 'listening') {
+          setState(() {
+            _isListening = true;
+            _statusMessage = 'Đang lắng nghe bạn nói...';
+          });
+        } else if (status == 'notListening' || status == 'done') {
           setState(() {
             _isListening = false;
+            _statusMessage = 'Đã dừng thu âm';
           });
         }
       },
@@ -72,20 +99,36 @@ class _VoicePromptModalState extends State<VoicePromptModal>
       if (mounted) {
         setState(() {
           _isListening = false;
+          _statusMessage = 'Không thể thu âm';
           _errorMessage =
-              'Không thể truy cập Microphone hoặc dịch vụ nhận diện giọng nói.';
+              'Không thể truy cập Microphone hoặc dịch vụ nhận diện giọng nói (Google Voice Recognition).';
+        });
+      }
+      return;
+    }
+
+    final hasPerm = await widget.speechService.hasPermission;
+    if (!hasPerm) {
+      if (mounted) {
+        setState(() {
+          _isListening = false;
+          _statusMessage = 'Thiếu quyền Microphone';
+          _errorMessage =
+              'Vui lòng cấp quyền Microphone cho AG Remote Support trong Cài đặt máy.';
         });
       }
       return;
     }
 
     await widget.speechService.startListening(
-      localeId: _selectedLocale,
+      localeId: _selectedLocale.isEmpty ? null : _selectedLocale,
       onResult: (text, isFinal) {
         if (mounted) {
           setState(() {
             _recognizedText = text;
-            if (isFinal) _isListening = false;
+            if (text.isNotEmpty) {
+              _errorMessage = null;
+            }
           });
         }
       },
@@ -105,6 +148,7 @@ class _VoicePromptModalState extends State<VoicePromptModal>
     if (mounted) {
       setState(() {
         _isListening = false;
+        _statusMessage = 'Đã dừng thu âm';
       });
     }
   }
@@ -147,7 +191,7 @@ class _VoicePromptModalState extends State<VoicePromptModal>
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Drag Indicator
+              // Thanh kéo
               Center(
                 child: Container(
                   width: 36,
@@ -160,7 +204,7 @@ class _VoicePromptModalState extends State<VoicePromptModal>
               ),
               const SizedBox(height: 16),
 
-              // Header with Language selector
+              // Header với nút đổi ngôn ngữ
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -190,11 +234,16 @@ class _VoicePromptModalState extends State<VoicePromptModal>
                             ),
                           ),
                           Text(
-                            _isListening
-                                ? 'Đang lắng nghe bạn nói...'
-                                : 'Đã dừng thu âm',
-                            style:
-                                TextStyle(fontSize: 12, color: textSecondary),
+                            _statusMessage,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: _isListening
+                                  ? primaryColor
+                                  : textSecondary,
+                              fontWeight: _isListening
+                                  ? FontWeight.w600
+                                  : FontWeight.normal,
+                            ),
                           ),
                         ],
                       ),
@@ -203,7 +252,7 @@ class _VoicePromptModalState extends State<VoicePromptModal>
                   // Dropdown chọn ngôn ngữ
                   Container(
                     padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
                       color: secondarySurface,
                       borderRadius: BorderRadius.circular(10),
@@ -225,6 +274,8 @@ class _VoicePromptModalState extends State<VoicePromptModal>
                               value: 'vi_VN', child: Text('🇻🇳 Tiếng Việt')),
                           DropdownMenuItem(
                               value: 'en_US', child: Text('🇺🇸 English')),
+                          DropdownMenuItem(
+                              value: '', child: Text('🌐 Tự động')),
                         ],
                         onChanged: (val) {
                           if (val != null && val != _selectedLocale) {
@@ -252,8 +303,9 @@ class _VoicePromptModalState extends State<VoicePromptModal>
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
                     color: _isListening
-                        ? primaryColor.withOpacity(0.5)
+                        ? primaryColor.withOpacity(0.6)
                         : borderColor,
+                    width: _isListening ? 1.4 : 1.0,
                   ),
                 ),
                 child: SingleChildScrollView(
@@ -263,21 +315,44 @@ class _VoicePromptModalState extends State<VoicePromptModal>
                       if (_recognizedText.isEmpty && _errorMessage == null)
                         Text(
                           _isListening
-                              ? 'Hãy nói yêu cầu (ví dụ: "Kiểm tra lỗi build và sửa giúp tôi")...'
-                              : 'Chưa nhận diện được âm thanh. Hãy bấm thu âm lại.',
+                              ? 'Đang lắng nghe... Hãy nói yêu cầu của bạn (ví dụ: "Kiểm tra lỗi build và sửa giúp tôi").'
+                              : 'Chưa có âm thanh. Hãy bấm vào nút Micro bên dưới để nói.',
                           style: TextStyle(
                             fontSize: 14,
-                            color: textSecondary.withOpacity(0.8),
+                            color: textSecondary.withOpacity(0.85),
                             fontStyle: FontStyle.italic,
                           ),
                         )
-                      else if (_errorMessage != null)
-                        Text(
-                          _errorMessage!,
-                          style: const TextStyle(
-                              fontSize: 13, color: AppColors.statusWarning),
-                        )
-                      else
+                      else if (_errorMessage != null) ...[
+                        Row(
+                          children: [
+                            const Icon(Icons.info_outline_rounded,
+                                size: 16, color: AppColors.statusWarning),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                _errorMessage!,
+                                style: const TextStyle(
+                                    fontSize: 13,
+                                    color: AppColors.statusWarning,
+                                    fontWeight: FontWeight.w500),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (_recognizedText.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          SelectableText(
+                            _recognizedText,
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w500,
+                              color: textPrimary,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
+                      ] else
                         SelectableText(
                           _recognizedText,
                           style: TextStyle(
@@ -306,8 +381,8 @@ class _VoicePromptModalState extends State<VoicePromptModal>
                     onTap: _isListening ? _stopListening : _startListening,
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 200),
-                      width: 56,
-                      height: 56,
+                      width: 60,
+                      height: 60,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         color: _isListening
@@ -329,7 +404,7 @@ class _VoicePromptModalState extends State<VoicePromptModal>
                             ? Icons.stop_rounded
                             : Icons.mic_rounded,
                         color: Colors.white,
-                        size: 28,
+                        size: 30,
                       ),
                     ),
                   ),
@@ -408,10 +483,15 @@ class _VoicePromptModalState extends State<VoicePromptModal>
     return AnimatedBuilder(
       animation: _waveController,
       builder: (context, child) {
-        final double base = _isListening ? (0.3 + (_soundLevel / 15.0).clamp(0.0, 0.7)) : 0.15;
-        final double wave1 = (base * (0.8 + 0.4 * _waveController.value)).clamp(0.1, 1.0);
-        final double wave2 = (base * (1.2 - 0.4 * _waveController.value)).clamp(0.1, 1.0);
-        final double wave3 = (base * (0.6 + 0.6 * _waveController.value)).clamp(0.1, 1.0);
+        final double base = _isListening
+            ? (0.35 + (_soundLevel / 12.0).clamp(0.0, 0.65))
+            : 0.15;
+        final double wave1 =
+            (base * (0.8 + 0.4 * _waveController.value)).clamp(0.1, 1.0);
+        final double wave2 =
+            (base * (1.2 - 0.4 * _waveController.value)).clamp(0.1, 1.0);
+        final double wave3 =
+            (base * (0.6 + 0.6 * _waveController.value)).clamp(0.1, 1.0);
 
         final heights = isLeft ? [wave3, wave2, wave1] : [wave1, wave2, wave3];
 
@@ -421,7 +501,7 @@ class _VoicePromptModalState extends State<VoicePromptModal>
             return Container(
               margin: const EdgeInsets.symmetric(horizontal: 2),
               width: 3.5,
-              height: 24 * h,
+              height: 26 * h,
               decoration: BoxDecoration(
                 color: _isListening
                     ? primaryColor.withOpacity(0.85)

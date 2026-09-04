@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -674,11 +675,7 @@ class _RemoteScreenState extends State<RemoteScreen> {
   Future<void> _injectPromptIntoWebView(String text, {required bool autoSubmit}) async {
     if (_webViewController == null) return;
 
-    final escapedText = text
-        .replaceAll(r'\', r'\\')
-        .replaceAll("'", r"\'")
-        .replaceAll('\n', r'\n')
-        .replaceAll('\r', '');
+    final jsText = jsonEncode(text);
 
     try {
       final dynamic result = await _webViewController?.evaluateJavascript(source: '''
@@ -696,10 +693,10 @@ class _RemoteScreenState extends State<RemoteScreen> {
 
             target.focus();
             if (target.isContentEditable) {
-              target.innerText = (target.innerText ? target.innerText + ' ' : '') + '$escapedText';
+              target.innerText = (target.innerText ? target.innerText + ' ' : '') + $jsText;
             } else {
               const prev = target.value || '';
-              target.value = (prev ? prev + ' ' : '') + '$escapedText';
+              target.value = (prev ? prev + ' ' : '') + $jsText;
             }
 
             target.dispatchEvent(new Event('input', { bubbles: true }));

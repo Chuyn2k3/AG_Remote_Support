@@ -14,23 +14,31 @@ class SpeechService {
 
   bool get isListening => _speechToText.isListening;
   bool get isAvailable => _isInitialized;
+  Future<bool> get hasPermission => _speechToText.hasPermission;
   String get lastWords => _lastWords;
   double get soundLevel => _soundLevel;
+
+  Function(SpeechRecognitionError)? onError;
+  Function(String)? onStatus;
 
   Future<bool> initialize({
     Function(SpeechRecognitionError)? onError,
     Function(String)? onStatus,
   }) async {
+    this.onError = onError;
+    this.onStatus = onStatus;
+
     if (_isInitialized) return true;
     try {
       _isInitialized = await _speechToText.initialize(
+        debugLogging: true,
         onError: (val) {
-          debugPrint('Speech error: ${val.errorMsg}');
-          onError?.call(val);
+          debugPrint('Speech error: ${val.errorMsg} (permanent: ${val.permanent})');
+          this.onError?.call(val);
         },
         onStatus: (val) {
           debugPrint('Speech status: $val');
-          onStatus?.call(val);
+          this.onStatus?.call(val);
         },
       );
       return _isInitialized;
@@ -51,21 +59,51 @@ class SpeechService {
     }
   }
 
+  Future<String?> resolveLocale(String? requestedLocale) async {
+    if (requestedLocale == null || requestedLocale.isEmpty) return null;
+    try {
+      final locales = await getLocales();
+      if (locales.isEmpty) return requestedLocale;
+
+      // 1. Exact match
+      for (final loc in locales) {
+        if (loc.localeId.toLowerCase() == requestedLocale.toLowerCase()) {
+          return loc.localeId;
+        }
+      }
+
+      // 2. Prefix match (e.g. 'vi' matches 'vi_VN' or 'vi-VN')
+      final langPrefix = requestedLocale.split(RegExp(r'[-_]')).first.toLowerCase();
+      for (final loc in locales) {
+        if (loc.localeId.toLowerCase().startsWith(langPrefix)) {
+          return loc.localeId;
+        }
+      }
+    } catch (e) {
+      debugPrint('Error resolving locale: $e');
+    }
+    return requestedLocale;
+  }
+
   Future<void> startListening({
     required Function(String text, bool isFinal) onResult,
     Function(double level)? onSoundLevel,
     String? localeId,
   }) async {
     if (!_isInitialized) {
-      final available = await initialize();
+      final available = await initialize(onError: onError, onStatus: onStatus);
       if (!available) return;
     }
 
     _lastWords = '';
+    final resolvedLocaleId = await resolveLocale(localeId);
+    debugPrint('Starting speech recognition with locale: $resolvedLocaleId (original: $localeId)');
+
     try {
       await _speechToText.listen(
         onResult: (SpeechRecognitionResult result) {
           _lastWords = result.recognizedWords;
+          debugPrint('Speech result: words="${result.recognizedWords}", isFinal=${result.finalResult}');
           onResult(result.recognizedWords, result.finalResult);
         },
         onSoundLevelChange: (level) {
@@ -73,9 +111,14 @@ class SpeechService {
           onSoundLevel?.call(level);
         },
         listenOptions: SpeechListenOptions(
-          localeId: localeId,
-          cancelOnError: true,
-          listenMode: ListenMode.confirmation,
+          localeId: resolvedLocaleId,
+          cancelOnError: false,
+          partialResults: true,
+          listenMode: ListenMode.dictation,
+          autoPunctuation: true,
+          enableHapticFeedback: true,
+          listenFor: const Duration(seconds: 45),
+          pauseFor: const Duration(seconds: 5),
         ),
       );
     } catch (e) {
