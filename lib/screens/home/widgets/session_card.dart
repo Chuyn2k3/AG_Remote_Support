@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
+import '../../../core/services/heartbeat_service.dart';
 import '../../../core/theme/app_colors.dart';
-import '../../../core/utils/url_parser.dart';
 import '../../../core/widgets/apple_card.dart';
 import '../../../core/widgets/status_dot.dart';
 import '../../../models/remote_session.dart';
 
 class SessionCard extends StatelessWidget {
   final RemoteSession session;
+  final DeviceStatus status;
   final VoidCallback onConnect;
   final VoidCallback onOpenInBrowser;
   final VoidCallback onRename;
@@ -16,6 +17,7 @@ class SessionCard extends StatelessWidget {
   const SessionCard({
     super.key,
     required this.session,
+    this.status = DeviceStatus.checking,
     required this.onConnect,
     required this.onOpenInBrowser,
     required this.onRename,
@@ -38,7 +40,24 @@ class SessionCard extends StatelessWidget {
     final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
     final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
     final badgeBg = isDark ? AppColors.darkPrimaryLight : AppColors.lightPrimaryLight;
-    final isRecent = DateTime.now().difference(session.lastAccessedAt).inHours < 2;
+
+    // Status styling
+    Color statusColor;
+    String statusLabel;
+    String statusSubtitle;
+    if (status == DeviceStatus.online) {
+      statusColor = isDark ? AppColors.statusSuccessDark : AppColors.statusSuccess;
+      statusLabel = 'Active';
+      statusSubtitle = 'Sẵn sàng kết nối';
+    } else if (status == DeviceStatus.offline) {
+      statusColor = textSecondary;
+      statusLabel = 'Offline';
+      statusSubtitle = 'Chưa mở Antigravity 2.0';
+    } else {
+      statusColor = primaryColor;
+      statusLabel = 'Kiểm tra';
+      statusSubtitle = 'Đang kiểm tra kết nối...';
+    }
 
     return AppleCard(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -48,19 +67,44 @@ class SessionCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              StatusDot(isOnline: isRecent),
+              StatusDot(
+                isOnline: status == DeviceStatus.online,
+                size: 8,
+              ),
               const SizedBox(width: 8),
               Expanded(
-                child: Text(
-                  session.title,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: textPrimary,
-                    letterSpacing: -0.2,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                child: Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        session.title,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: textPrimary,
+                          letterSpacing: -0.2,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                      decoration: BoxDecoration(
+                        color: statusColor.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        statusLabel,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: statusColor,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
               if (session.isPinned)
@@ -132,12 +176,12 @@ class SessionCard extends StatelessWidget {
             ),
           ],
 
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'ID: ${UrlParser.getShortSessionId(session.id)} • ${_formatTime(session.lastAccessedAt)}',
+                '$statusSubtitle • ${_formatTime(session.lastAccessedAt)}',
                 style: TextStyle(fontSize: 11, color: textSecondary),
               ),
               InkWell(
