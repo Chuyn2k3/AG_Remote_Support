@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -36,10 +37,14 @@ class _FloatingCapsuleState extends State<FloatingCapsule> {
   @override
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.of(context).size;
+    final maxLeft = math.max(10.0, screenSize.width - (_isMini ? 60.0 : 360.0));
+    final maxTop = math.max(44.0, screenSize.height - 90.0);
+    final safeLeft = _offset.dx.clamp(10.0, maxLeft);
+    final safeTop = _offset.dy.clamp(44.0, maxTop);
 
     return Positioned(
-      left: _offset.dx.clamp(10.0, screenSize.width - (_isMini ? 55.0 : 410.0)),
-      top: _offset.dy.clamp(44.0, screenSize.height - 110.0),
+      left: safeLeft,
+      top: safeTop,
       child: GestureDetector(
         onPanUpdate: (details) {
           setState(() {
@@ -53,12 +58,13 @@ class _FloatingCapsuleState extends State<FloatingCapsule> {
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 220),
               curve: Curves.easeOutCubic,
+              constraints: BoxConstraints(maxWidth: math.max(60.0, screenSize.width - 20.0)),
               padding: EdgeInsets.symmetric(
-                horizontal: _isMini ? 8 : 10,
-                vertical: _isMini ? 6 : 6,
+                horizontal: _isMini ? 8 : 8,
+                vertical: _isMini ? 6 : 5,
               ),
               decoration: BoxDecoration(
-                color: const Color(0xFF1C1C1E).withOpacity(0.82),
+                color: const Color(0xFF1C1C1E).withOpacity(0.85),
                 borderRadius: BorderRadius.circular(_isMini ? 20 : 26),
                 border: Border.all(
                   color: Colors.white.withOpacity(0.18),
@@ -114,102 +120,106 @@ class _FloatingCapsuleState extends State<FloatingCapsule> {
   }
 
   Widget _buildExpandedView() {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // Voice Prompt Action
-        if (widget.onVoicePrompt != null) ...[
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      physics: const BouncingScrollPhysics(),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Voice Prompt Action
+          if (widget.onVoicePrompt != null) ...[
+            _buildActionButton(
+              icon: Icons.mic_rounded,
+              label: 'Voice',
+              color: const Color(0xFF0A84FF),
+              onTap: () {
+                HapticFeedback.lightImpact();
+                widget.onVoicePrompt?.call();
+              },
+            ),
+            _buildDivider(),
+          ],
+          // Git Quick Actions
+          if (widget.onGitActions != null) ...[
+            _buildActionButton(
+              icon: Icons.difference_rounded,
+              label: 'Git',
+              color: const Color(0xFF30D158),
+              onTap: () {
+                HapticFeedback.lightImpact();
+                widget.onGitActions?.call();
+              },
+            ),
+            _buildDivider(),
+          ],
+          // Keep Awake Toggle
           _buildActionButton(
-            icon: Icons.mic_rounded,
-            label: 'Voice',
+            icon: widget.isWakelockEnabled ? Icons.lightbulb_rounded : Icons.lightbulb_outline_rounded,
+            label: 'Sáng',
+            color: widget.isWakelockEnabled ? AppColors.statusWarning : Colors.white,
+            onTap: () {
+              HapticFeedback.lightImpact();
+              widget.onToggleWakelock();
+            },
+          ),
+          _buildDivider(),
+          // Multi-account modal
+          _buildActionButton(
+            icon: Icons.person_outline_rounded,
+            label: 'Tài khoản',
             color: const Color(0xFF0A84FF),
             onTap: () {
-              HapticFeedback.lightImpact();
-              widget.onVoicePrompt?.call();
+              HapticFeedback.selectionClick();
+              widget.onAccount();
             },
           ),
           _buildDivider(),
-        ],
-        // Git Quick Actions
-        if (widget.onGitActions != null) ...[
+          // Reload
           _buildActionButton(
-            icon: Icons.difference_rounded,
-            label: 'Git',
-            color: const Color(0xFF30D158),
+            icon: Icons.refresh_rounded,
+            label: 'Tải lại',
+            color: Colors.white,
             onTap: () {
-              HapticFeedback.lightImpact();
-              widget.onGitActions?.call();
+              HapticFeedback.selectionClick();
+              widget.onReload();
             },
           ),
           _buildDivider(),
+          // Copy URL
+          _buildActionButton(
+            icon: Icons.copy_rounded,
+            label: 'Copy',
+            color: Colors.white,
+            onTap: () {
+              HapticFeedback.selectionClick();
+              widget.onCopyUrl();
+            },
+          ),
+          _buildDivider(),
+          // Exit to Hub
+          _buildActionButton(
+            icon: Icons.home_rounded,
+            label: 'Hub',
+            color: Colors.white,
+            onTap: () {
+              HapticFeedback.selectionClick();
+              widget.onExit();
+            },
+          ),
+          _buildDivider(),
+          // Minimize Button
+          IconButton(
+            tooltip: 'Thu gọn',
+            constraints: const BoxConstraints(),
+            padding: const EdgeInsets.all(6),
+            icon: const Icon(Icons.close_fullscreen_rounded, size: 15, color: Colors.white54),
+            onPressed: () {
+              HapticFeedback.selectionClick();
+              setState(() => _isMini = true);
+            },
+          ),
         ],
-        // Keep Awake Toggle
-        _buildActionButton(
-          icon: widget.isWakelockEnabled ? Icons.lightbulb_rounded : Icons.lightbulb_outline_rounded,
-          label: 'Sáng',
-          color: widget.isWakelockEnabled ? AppColors.statusWarning : Colors.white,
-          onTap: () {
-            HapticFeedback.lightImpact();
-            widget.onToggleWakelock();
-          },
-        ),
-        _buildDivider(),
-        // Multi-account modal
-        _buildActionButton(
-          icon: Icons.person_outline_rounded,
-          label: 'Tài khoản',
-          color: const Color(0xFF0A84FF),
-          onTap: () {
-            HapticFeedback.selectionClick();
-            widget.onAccount();
-          },
-        ),
-        _buildDivider(),
-        // Reload
-        _buildActionButton(
-          icon: Icons.refresh_rounded,
-          label: 'Tải lại',
-          color: Colors.white,
-          onTap: () {
-            HapticFeedback.selectionClick();
-            widget.onReload();
-          },
-        ),
-        _buildDivider(),
-        // Copy URL
-        _buildActionButton(
-          icon: Icons.copy_rounded,
-          label: 'Copy',
-          color: Colors.white,
-          onTap: () {
-            HapticFeedback.selectionClick();
-            widget.onCopyUrl();
-          },
-        ),
-        _buildDivider(),
-        // Exit to Hub
-        _buildActionButton(
-          icon: Icons.home_rounded,
-          label: 'Hub',
-          color: Colors.white,
-          onTap: () {
-            HapticFeedback.selectionClick();
-            widget.onExit();
-          },
-        ),
-        _buildDivider(),
-        // Minimize Button
-        IconButton(
-          tooltip: 'Thu gọn',
-          constraints: const BoxConstraints(),
-          padding: const EdgeInsets.all(6),
-          icon: const Icon(Icons.close_fullscreen_rounded, size: 15, color: Colors.white54),
-          onPressed: () {
-            HapticFeedback.selectionClick();
-            setState(() => _isMini = true);
-          },
-        ),
-      ],
+      ),
     );
   }
 
