@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -51,14 +52,15 @@ class _RemoteScreenState extends State<RemoteScreen> {
       _isWakelock = status;
     });
     if (mounted) {
+      final isDark = Theme.of(context).brightness == Brightness.dark;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           duration: const Duration(seconds: 1),
-          backgroundColor: AppColors.surfaceDark,
+          backgroundColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
           content: Text(
-            status ? '💡 Giữ sáng màn hình: ĐÃ BẬT' : '💡 Giữ sáng màn hình: ĐÃ TẮT',
+            status ? '💡 Giữ sáng màn hình: BẬT' : '💡 Giữ sáng màn hình: TẮT',
             style: TextStyle(
-              color: status ? AppColors.stateWarning : AppColors.textSecondary,
+              color: status ? AppColors.statusWarning : (isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary),
             ),
           ),
         ),
@@ -68,11 +70,15 @@ class _RemoteScreenState extends State<RemoteScreen> {
 
   void _copyUrl() {
     Clipboard.setData(ClipboardData(text: widget.session.rawUrl));
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        duration: Duration(seconds: 1),
-        backgroundColor: AppColors.surfaceDark,
-        content: Text('📋 Đã sao chép link session', style: TextStyle(color: AppColors.textPrimary)),
+      SnackBar(
+        duration: const Duration(seconds: 1),
+        backgroundColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+        content: Text(
+          '📋 Đã sao chép link session',
+          style: TextStyle(color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary),
+        ),
       ),
     );
   }
@@ -89,9 +95,16 @@ class _RemoteScreenState extends State<RemoteScreen> {
   }
 
   void _showAccountModal() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryColor = isDark ? AppColors.darkPrimary : AppColors.lightPrimary;
+    final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final surfaceColor = isDark ? AppColors.darkSurface : AppColors.lightSurface;
+    final badgeBg = isDark ? AppColors.darkPrimaryLight : AppColors.lightPrimaryLight;
+
     showModalBottomSheet(
       context: context,
-      backgroundColor: AppColors.surfaceDarkElevated,
+      backgroundColor: surfaceColor,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -105,28 +118,36 @@ class _RemoteScreenState extends State<RemoteScreen> {
               children: [
                 Center(
                   child: Container(
-                    width: 40,
+                    width: 36,
                     height: 4,
                     decoration: BoxDecoration(
-                      color: AppColors.borderSubtle,
+                      color: textSecondary.withOpacity(0.3),
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
                 ),
                 const SizedBox(height: 16),
-                const Text(
+                Text(
                   'Quản lý Tài khoản & Đăng nhập',
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: 17,
                     fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
+                    color: textPrimary,
+                    letterSpacing: -0.3,
                   ),
                 ),
                 if (widget.session.email != null) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    'Tài khoản phiên này: ${widget.session.email}',
-                    style: const TextStyle(fontSize: 12, color: AppColors.brandPrimaryLight),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: badgeBg,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      'Tài khoản: ${widget.session.email}',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: primaryColor),
+                    ),
                   ),
                 ],
                 const SizedBox(height: 16),
@@ -135,16 +156,17 @@ class _RemoteScreenState extends State<RemoteScreen> {
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: Container(
-                    padding: const EdgeInsets.all(8),
+                    width: 40,
+                    height: 40,
                     decoration: BoxDecoration(
-                      color: AppColors.brandPrimary.withOpacity(0.15),
+                      color: badgeBg,
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Icon(Icons.switch_account, color: AppColors.brandPrimary),
+                    child: Icon(Icons.switch_account_rounded, color: primaryColor),
                   ),
-                  title: const Text('Đổi / Thêm tài khoản Google', style: TextStyle(color: AppColors.textPrimary)),
-                  subtitle: const Text('Mở Google Account Chooser để chọn hoặc đăng nhập mail khác',
-                      style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                  title: Text('Đổi / Thêm tài khoản Google', style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600)),
+                  subtitle: Text('Mở Google Account Chooser để chọn hoặc đăng nhập mail khác',
+                      style: TextStyle(fontSize: 12, color: textSecondary)),
                   onTap: () {
                     Navigator.pop(ctx);
                     final chooserUrl =
@@ -157,17 +179,18 @@ class _RemoteScreenState extends State<RemoteScreen> {
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: Container(
-                    padding: const EdgeInsets.all(8),
+                    width: 40,
+                    height: 40,
                     decoration: BoxDecoration(
-                      color: AppColors.accentCyan.withOpacity(0.15),
+                      color: badgeBg,
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Icon(Icons.open_in_browser, color: AppColors.accentCyan),
+                    child: Icon(Icons.open_in_browser_rounded, color: primaryColor),
                   ),
-                  title: const Text('Mở bằng Trình duyệt máy (Chrome/Safari)',
-                      style: TextStyle(color: AppColors.textPrimary)),
-                  subtitle: const Text('Dùng luôn phiên đăng nhập Google có sẵn trên máy mà không cần nhập mật khẩu',
-                      style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                  title: Text('Mở bằng Trình duyệt máy (Safari/Chrome)',
+                      style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600)),
+                  subtitle: Text('Dùng phiên đăng nhập Google đã lưu sẵn trên trình duyệt',
+                      style: TextStyle(fontSize: 12, color: textSecondary)),
                   onTap: () async {
                     Navigator.pop(ctx);
                     await InAppBrowser.openWithSystemBrowser(url: WebUri(widget.session.rawUrl));
@@ -178,25 +201,26 @@ class _RemoteScreenState extends State<RemoteScreen> {
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: Container(
-                    padding: const EdgeInsets.all(8),
+                    width: 40,
+                    height: 40,
                     decoration: BoxDecoration(
-                      color: AppColors.stateWarning.withOpacity(0.15),
+                      color: AppColors.statusWarning.withOpacity(0.15),
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Icon(Icons.cleaning_services, color: AppColors.stateWarning),
+                    child: const Icon(Icons.cleaning_services_rounded, color: AppColors.statusWarning),
                   ),
-                  title: const Text('Xóa toàn bộ Cookie', style: TextStyle(color: AppColors.textPrimary)),
-                  subtitle: const Text('Reset sạch phiên đăng nhập nếu gặp lỗi tài khoản',
-                      style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                  title: Text('Xóa toàn bộ Cookie', style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600)),
+                  subtitle: Text('Reset sạch phiên nếu gặp sự cố đăng nhập',
+                      style: TextStyle(fontSize: 12, color: textSecondary)),
                   onTap: () async {
                     Navigator.pop(ctx);
                     await CookieManager.instance().deleteAllCookies();
                     _retry();
                     if (mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Đã xóa toàn bộ cookie đăng nhập'),
-                          backgroundColor: AppColors.surfaceDark,
+                        SnackBar(
+                          content: const Text('Đã xóa toàn bộ cookie đăng nhập'),
+                          backgroundColor: surfaceColor,
                         ),
                       );
                     }
@@ -212,6 +236,11 @@ class _RemoteScreenState extends State<RemoteScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryColor = isDark ? AppColors.darkPrimary : AppColors.lightPrimary;
+    final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
@@ -224,7 +253,7 @@ class _RemoteScreenState extends State<RemoteScreen> {
         }
       },
       child: Scaffold(
-        backgroundColor: AppColors.bgDark,
+        backgroundColor: isDark ? AppColors.darkBackground : AppColors.lightBackground,
         body: SafeArea(
           bottom: false,
           child: Stack(
@@ -290,7 +319,7 @@ class _RemoteScreenState extends State<RemoteScreen> {
                 ),
               ),
 
-              // Thin Linear Progress Indicator at top (Tech Cyan)
+              // Thin 2px Linear Progress Indicator at top (Apple Blue)
               if (_progress < 1.0)
                 Positioned(
                   top: 0,
@@ -299,88 +328,110 @@ class _RemoteScreenState extends State<RemoteScreen> {
                   child: LinearProgressIndicator(
                     value: _progress,
                     backgroundColor: Colors.transparent,
-                    valueColor: const AlwaysStoppedAnimation<Color>(AppColors.accentCyan),
-                    minHeight: 2.5,
+                    valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+                    minHeight: 2.0,
                   ),
                 ),
 
               // Loading Spinner nếu trang đang khởi động lần đầu
               if (_isLoading && _progress < 0.2)
                 Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceDark.withOpacity(0.9),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: AppColors.borderSubtle),
-                    ),
-                    child: const Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        SizedBox(
-                          width: 28,
-                          height: 28,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.5,
-                            valueColor: AlwaysStoppedAnimation<Color>(AppColors.brandPrimary),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+                        decoration: BoxDecoration(
+                          color: (isDark ? AppColors.darkSurface : AppColors.lightSurface).withOpacity(0.9),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
                           ),
                         ),
-                        SizedBox(height: 12),
-                        Text(
-                          'Đang kết nối tới Google & Antigravity...',
-                          style: TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 12,
-                          ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: 28,
+                              height: 28,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'Đang kết nối tới Antigravity Desktop...',
+                              style: TextStyle(
+                                color: textSecondary,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
 
-              // Error banner if loading completely failed
+              // Error banner if loading completely failed (Frosted style, no harsh red)
               if (_errorMessage != null)
                 Center(
-                  child: Container(
-                    margin: const EdgeInsets.all(24),
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceDark,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: AppColors.stateWarning.withOpacity(0.5)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.4),
-                          blurRadius: 16,
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.wifi_off, size: 36, color: AppColors.stateWarning),
-                        const SizedBox(height: 12),
-                        Text(
-                          _errorMessage!,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
-                        ),
-                        const SizedBox(height: 16),
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.brandPrimary,
-                            foregroundColor: Colors.white,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(18),
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                      child: Container(
+                        margin: const EdgeInsets.all(24),
+                        padding: const EdgeInsets.all(22),
+                        decoration: BoxDecoration(
+                          color: (isDark ? AppColors.darkSurface : AppColors.lightSurface).withOpacity(0.92),
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(
+                            color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
                           ),
-                          icon: const Icon(Icons.refresh, size: 18),
-                          label: const Text('Thử lại'),
-                          onPressed: _retry,
                         ),
-                      ],
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.wifi_off_rounded, size: 36, color: textSecondary),
+                            const SizedBox(height: 12),
+                            Text(
+                              'Không thể kết nối với Desktop',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: textPrimary,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Hãy đảm bảo Antigravity 2.0 đang chạy trên máy tính của bạn.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: textSecondary, fontSize: 13),
+                            ),
+                            const SizedBox(height: 18),
+                            ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: primaryColor,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                              icon: const Icon(Icons.refresh_rounded, size: 18),
+                              label: const Text('Thử lại', style: TextStyle(fontWeight: FontWeight.w600)),
+                              onPressed: _retry,
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
 
-              // Floating Capsule Assistant Menu
+              // Floating Dynamic Island Capsule Assistant
               FloatingCapsule(
                 isWakelockEnabled: _isWakelock,
                 onToggleWakelock: _toggleWakelock,
