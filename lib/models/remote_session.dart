@@ -6,6 +6,7 @@ class RemoteSession {
   final DateTime createdAt;
   DateTime lastAccessedAt;
   bool isPinned;
+  bool isDisconnected;
 
   RemoteSession({
     required this.id,
@@ -15,6 +16,7 @@ class RemoteSession {
     required this.createdAt,
     required this.lastAccessedAt,
     this.isPinned = false,
+    this.isDisconnected = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -25,6 +27,7 @@ class RemoteSession {
         'createdAt': createdAt.toIso8601String(),
         'lastAccessedAt': lastAccessedAt.toIso8601String(),
         'isPinned': isPinned,
+        'isDisconnected': isDisconnected,
       };
 
   factory RemoteSession.fromJson(Map<String, dynamic> json) => RemoteSession(
@@ -35,5 +38,6 @@ class RemoteSession {
         createdAt: DateTime.parse(json['createdAt'] as String),
         lastAccessedAt: DateTime.parse(json['lastAccessedAt'] as String),
         isPinned: json['isPinned'] as bool? ?? false,
+        isDisconnected: json['isDisconnected'] as bool? ?? false,
       );
 }

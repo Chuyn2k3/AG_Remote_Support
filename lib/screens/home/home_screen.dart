@@ -93,7 +93,12 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) {
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => RemoteScreen(session: session)),
+        MaterialPageRoute(
+          builder: (_) => RemoteScreen(
+            session: session,
+            storageService: widget.storageService,
+          ),
+        ),
       ).then((_) {
         _loadSessions();
         _refreshDeviceStatuses();
@@ -616,11 +621,14 @@ class _HomeScreenState extends State<HomeScreen> {
                         session: s,
                         status: _deviceStatuses[s.id] ?? DeviceStatus.checking,
                         onConnect: () {
-                          s.lastAccessedAt = DateTime.now();
-                          widget.storageService.upsertSession(s);
                           Navigator.push(
                             context,
-                            MaterialPageRoute(builder: (_) => RemoteScreen(session: s)),
+                            MaterialPageRoute(
+                              builder: (_) => RemoteScreen(
+                                session: s,
+                                storageService: widget.storageService,
+                              ),
+                            ),
                           ).then((_) {
                             _loadSessions();
                             _refreshDeviceStatuses();

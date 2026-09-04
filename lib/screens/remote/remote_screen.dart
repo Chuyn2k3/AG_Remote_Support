@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import '../../core/services/storage_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/services/wakelock_service.dart';
 import '../../models/remote_session.dart';
@@ -9,8 +11,13 @@ import 'widgets/floating_capsule.dart';
 
 class RemoteScreen extends StatefulWidget {
   final RemoteSession session;
+  final StorageService? storageService;
 
-  const RemoteScreen({super.key, required this.session});
+  const RemoteScreen({
+    super.key,
+    required this.session,
+    this.storageService,
+  });
 
   @override
   State<RemoteScreen> createState() => _RemoteScreenState();
@@ -22,6 +29,9 @@ class _RemoteScreenState extends State<RemoteScreen> {
   bool _isWakelock = false;
   String? _errorMessage;
   bool _isLoading = true;
+  bool _isInstanceDisconnected = false;
+  Timer? _disconnectCheckTimer;
+  StorageService? _storageService;
 
   // Custom User-Agent giả lập Chrome Mobile chuẩn để vượt qua Google OAuth 403 disallowed_useragent
   static const String customUserAgent =
@@ -30,7 +40,82 @@ class _RemoteScreenState extends State<RemoteScreen> {
   @override
   void initState() {
     super.initState();
+    _isInstanceDisconnected = widget.session.isDisconnected;
+    _storageService = widget.storageService;
+    _initStorageIfNeeded();
     _initWakelock();
+    _startDisconnectPolling();
+  }
+
+  Future<void> _initStorageIfNeeded() async {
+    _storageService ??= await StorageService.init();
+  }
+
+  void _startDisconnectPolling() {
+    _disconnectCheckTimer = Timer.periodic(const Duration(milliseconds: 2500), (_) {
+      _checkInstanceDisconnection();
+    });
+  }
+
+  Future<void> _checkInstanceDisconnection() async {
+    if (_webViewController == null || !mounted) return;
+
+    try {
+      final dynamic result = await _webViewController?.evaluateJavascript(source: '''
+        (function() {
+          try {
+            const body = document.body;
+            if (!body) return false;
+            const text = (body.innerText || '').toLowerCase();
+            const hasDisconnectedText = text.includes('instance disconnected') ||
+                                        text.includes('instance offline') ||
+                                        text.includes('no instance') ||
+                                        text.includes('disconnected from instance') ||
+                                        text.includes('session ended') ||
+                                        text.includes('connection lost');
+            const hasDisconnectCard = document.querySelector('.disconnect-card, .no-instance-card, [data-status="disconnected"]') !== null;
+            return hasDisconnectedText || hasDisconnectCard;
+          } catch(e) {
+            return false;
+          }
+        })()
+      ''');
+
+      final bool isDisconnected = (result == true || result == 'true' || result == 1);
+
+      if (isDisconnected != _isInstanceDisconnected) {
+        if (mounted) {
+          setState(() {
+            _isInstanceDisconnected = isDisconnected;
+          });
+        }
+        widget.session.isDisconnected = isDisconnected;
+        if (!isDisconnected) {
+          widget.session.lastAccessedAt = DateTime.now();
+        }
+        await _saveSessionState();
+      } else if (!isDisconnected && widget.session.isDisconnected) {
+        widget.session.isDisconnected = false;
+        widget.session.lastAccessedAt = DateTime.now();
+        await _saveSessionState();
+      }
+    } catch (e) {
+      debugPrint('Error checking disconnection: $e');
+    }
+  }
+
+  Future<void> _saveSessionState() async {
+    try {
+      if (_storageService != null) {
+        await _storageService!.upsertSession(widget.session);
+      } else {
+        final storage = await StorageService.init();
+        _storageService = storage;
+        await storage.upsertSession(widget.session);
+      }
+    } catch (e) {
+      debugPrint('Error saving session state: $e');
+    }
   }
 
   Future<void> _initWakelock() async {
@@ -42,6 +127,7 @@ class _RemoteScreenState extends State<RemoteScreen> {
 
   @override
   void dispose() {
+    _disconnectCheckTimer?.cancel();
     WakelockService.disable();
     super.dispose();
   }
@@ -88,11 +174,15 @@ class _RemoteScreenState extends State<RemoteScreen> {
       _errorMessage = null;
       _isLoading = true;
       _progress = 0;
+      _isInstanceDisconnected = false;
     });
+    widget.session.isDisconnected = false;
+    _saveSessionState();
     _webViewController?.loadUrl(
       urlRequest: URLRequest(url: WebUri(widget.session.rawUrl)),
     );
   }
+
 
   void _showAccountModal() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -291,6 +381,9 @@ class _RemoteScreenState extends State<RemoteScreen> {
                       _progress = 1.0;
                     });
                     debugPrint('WebView Load Stop: $url');
+                    Future.delayed(const Duration(milliseconds: 600), () {
+                      if (mounted) _checkInstanceDisconnection();
+                    });
                   },
                   shouldOverrideUrlLoading: (controller, navigationAction) async {
                     // Cho phép tất cả các redirect (Google SSO 302 redirects)
@@ -423,6 +516,118 @@ class _RemoteScreenState extends State<RemoteScreen> {
                               icon: const Icon(Icons.refresh_rounded, size: 18),
                               label: const Text('Thử lại', style: TextStyle(fontWeight: FontWeight.w600)),
                               onPressed: _retry,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+              // Disconnected Banner/Overlay (Apple Frosted Glass HIG)
+              if (_isInstanceDisconnected)
+                Center(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(22),
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 24),
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+                        decoration: BoxDecoration(
+                          color: (isDark ? AppColors.darkSurface : AppColors.lightSurface).withOpacity(0.92),
+                          borderRadius: BorderRadius.circular(22),
+                          border: Border.all(
+                            color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(isDark ? 0.35 : 0.08),
+                              blurRadius: 30,
+                              offset: const Offset(0, 10),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 58,
+                              height: 58,
+                              decoration: BoxDecoration(
+                                color: (isDark ? AppColors.darkPrimaryLight : AppColors.lightPrimaryLight),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                Icons.power_off_rounded,
+                                size: 28,
+                                color: primaryColor,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Máy tính đã ngắt kết nối',
+                              style: TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w700,
+                                color: textPrimary,
+                                letterSpacing: -0.3,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Antigravity 2.0 trên máy tính đã tắt hoặc mất kết nối mạng. Hãy mở lại Antigravity trên máy tính để tiếp tục làm việc.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: textSecondary,
+                                fontSize: 13,
+                                height: 1.4,
+                              ),
+                            ),
+                            const SizedBox(height: 22),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: primaryColor,
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                icon: const Icon(Icons.refresh_rounded, size: 18),
+                                label: const Text(
+                                  'Thử kết nối lại',
+                                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                                ),
+                                onPressed: _retry,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton(
+                                style: OutlinedButton.styleFrom(
+                                  side: BorderSide(
+                                    color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                                  ),
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                onPressed: () => Navigator.pop(context),
+                                child: Text(
+                                  'Quay lại Hub thiết bị',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: textPrimary,
+                                  ),
+                                ),
+                              ),
                             ),
                           ],
                         ),

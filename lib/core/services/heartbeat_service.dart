@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import '../../models/remote_session.dart';
 import '../utils/url_parser.dart';
 
@@ -20,35 +19,28 @@ class HeartbeatService {
     return 'https://antigravity.google.com/r/$sessionId-v2';
   }
 
+  /// Xác định trạng thái kết nối thực tế dựa trên cờ ngắt kết nối và thời gian truy cập gần nhất.
+  /// Tuyệt đối không dùng HTTP HEAD 200 ảo vì máy chủ Google luôn trả về 200 cho bất kỳ link nào.
+  static DeviceStatus evaluateSessionStatus(RemoteSession session) {
+    // Nếu phiên đã được xác nhận là 'instance disconnected' từ WebView
+    if (session.isDisconnected) {
+      return DeviceStatus.offline;
+    }
+
+    // Nếu vừa được mở kết nối thành công trong vòng 20 phút trước
+    final diff = DateTime.now().difference(session.lastAccessedAt);
+    if (diff.inMinutes < 20) {
+      return DeviceStatus.online;
+    }
+
+    return DeviceStatus.offline;
+  }
+
   static Future<DeviceStatus> pingSession(
     RemoteSession session, {
     int timeoutMs = defaultTimeoutMs,
   }) async {
-    final urlStr = getTargetUrl(session);
-    final uri = Uri.tryParse(urlStr);
-    if (uri == null) return DeviceStatus.offline;
-
-    HttpClient? client;
-    try {
-      client = HttpClient()
-        ..connectionTimeout = Duration(milliseconds: timeoutMs);
-
-      final request = await client.headUrl(uri).timeout(Duration(milliseconds: timeoutMs));
-      // Không tự động redirect để bắt phản hồi nhanh 302/200 của tunnel Google
-      request.followRedirects = false;
-
-      final response = await request.close().timeout(Duration(milliseconds: timeoutMs));
-
-      // 200, 302, 401, 403 chứng tỏ Google tunnel endpoint đang hoạt động
-      if (response.statusCode >= 200 && response.statusCode < 404) {
-        return DeviceStatus.online;
-      }
-      return DeviceStatus.offline;
-    } catch (_) {
-      return DeviceStatus.offline;
-    } finally {
-      client?.close(force: true);
-    }
+    return evaluateSessionStatus(session);
   }
 
   static Future<Map<String, DeviceStatus>> pingAll(
@@ -56,16 +48,8 @@ class HeartbeatService {
     int timeoutMs = defaultTimeoutMs,
   }) async {
     final results = <String, DeviceStatus>{};
-    if (sessions.isEmpty) return results;
-
-    final futures = sessions.map((session) async {
-      final status = await pingSession(session, timeoutMs: timeoutMs);
-      return MapEntry(session.id, status);
-    });
-
-    final entries = await Future.wait(futures);
-    for (final entry in entries) {
-      results[entry.key] = entry.value;
+    for (final session in sessions) {
+      results[session.id] = evaluateSessionStatus(session);
     }
     return results;
   }
