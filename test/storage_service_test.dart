@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:antigravity_support/core/services/storage_service.dart';
@@ -45,5 +46,18 @@ void main() {
 
     final sessions = storageService.getSessions();
     expect(sessions.isEmpty, isTrue);
+  });
+
+  test('Save and retrieve ThemeMode', () async {
+    expect(storageService.getThemeMode(), ThemeMode.system);
+
+    await storageService.saveThemeMode(ThemeMode.light);
+    expect(storageService.getThemeMode(), ThemeMode.light);
+
+    await storageService.saveThemeMode(ThemeMode.dark);
+    expect(storageService.getThemeMode(), ThemeMode.dark);
+
+    await storageService.saveThemeMode(ThemeMode.system);
+    expect(storageService.getThemeMode(), ThemeMode.system);
   });
 }

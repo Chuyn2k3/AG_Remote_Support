@@ -12,8 +12,13 @@ import 'widgets/session_card.dart';
 
 class HomeScreen extends StatefulWidget {
   final StorageService storageService;
+  final ValueNotifier<ThemeMode>? themeNotifier;
 
-  const HomeScreen({super.key, required this.storageService});
+  const HomeScreen({
+    super.key,
+    required this.storageService,
+    this.themeNotifier,
+  });
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
