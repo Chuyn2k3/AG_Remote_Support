@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import '../../core/services/biometric_service.dart';
 import '../../core/services/heartbeat_service.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/theme/app_colors.dart';
@@ -15,11 +16,13 @@ import 'widgets/session_card.dart';
 class HomeScreen extends StatefulWidget {
   final StorageService storageService;
   final ValueNotifier<ThemeMode>? themeNotifier;
+  final BiometricService? biometricService;
 
   const HomeScreen({
     super.key,
     required this.storageService,
     this.themeNotifier,
+    this.biometricService,
   });
 
   @override
@@ -28,11 +31,13 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   late List<RemoteSession> _sessions;
+  late final BiometricService _biometricService;
   Map<String, DeviceStatus> _deviceStatuses = {};
 
   @override
   void initState() {
     super.initState();
+    _biometricService = widget.biometricService ?? BiometricService();
     _loadSessions();
     _refreshDeviceStatuses();
   }
@@ -504,6 +509,176 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildSecurityButton(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryColor = isDark ? AppColors.darkPrimary : AppColors.lightPrimary;
+    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final isEnabled = widget.storageService.isBiometricEnabled();
+
+    return InkWell(
+      onTap: _showSecurityBottomSheet,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: isEnabled
+              ? (isDark ? AppColors.darkPrimaryLight : AppColors.lightPrimaryLight)
+              : (isDark ? AppColors.darkSurfaceSecondary : AppColors.lightSurfaceSecondary),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(
+          isEnabled ? Icons.shield_rounded : Icons.shield_outlined,
+          size: 18,
+          color: isEnabled ? primaryColor : textSecondary,
+        ),
+      ),
+    );
+  }
+
+  void _showSecurityBottomSheet() async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryColor = isDark ? AppColors.darkPrimary : AppColors.lightPrimary;
+    final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final surfaceColor = isDark ? AppColors.darkSurface : AppColors.lightSurface;
+    final badgeBg = isDark ? AppColors.darkPrimaryLight : AppColors.lightPrimaryLight;
+
+    final biometricName = await _biometricService.getBiometricDisplayName();
+
+    if (!mounted) return;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: surfaceColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (modalCtx, setModalState) {
+            final isEnabled = widget.storageService.isBiometricEnabled();
+
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 36,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: textSecondary.withOpacity(0.3),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Row(
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: badgeBg,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(Icons.security_rounded, color: primaryColor, size: 22),
+                        ),
+                        const SizedBox(width: 12),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Bảo mật Ứng dụng',
+                              style: TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w700,
+                                color: textPrimary,
+                                letterSpacing: -0.3,
+                              ),
+                            ),
+                            Text(
+                              'Cảm biến: $biometricName',
+                              style: TextStyle(fontSize: 12, color: textSecondary),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Toggle Lock Switch
+                    Container(
+                      decoration: BoxDecoration(
+                        color: isDark ? AppColors.darkSurfaceSecondary : AppColors.lightSurfaceSecondary,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                        ),
+                      ),
+                      child: SwitchListTile.adaptive(
+                        activeColor: primaryColor,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                        title: Text(
+                          'Khóa khi mở ứng dụng',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: textPrimary,
+                          ),
+                        ),
+                        subtitle: Text(
+                          'Yêu cầu $biometricName mỗi khi mở hoặc quay lại ứng dụng',
+                          style: TextStyle(fontSize: 12, color: textSecondary),
+                        ),
+                        value: isEnabled,
+                        onChanged: (val) async {
+                          final success = await _biometricService.authenticate(
+                            reason: val
+                                ? 'Xác thực để kích hoạt khóa bảo mật ứng dụng'
+                                : 'Xác thực để tắt khóa bảo mật ứng dụng',
+                          );
+
+                          if (success) {
+                            await widget.storageService.setBiometricEnabled(val);
+                            setModalState(() {});
+                            setState(() {});
+                            if (mounted && modalCtx.mounted) {
+                              ScaffoldMessenger.of(modalCtx).showSnackBar(
+                                SnackBar(
+                                  duration: const Duration(seconds: 2),
+                                  backgroundColor: surfaceColor,
+                                  content: Text(
+                                    val ? '🔒 Đã bật khóa $biometricName' : '🔓 Đã tắt khóa bảo mật',
+                                    style: TextStyle(color: textPrimary),
+                                  ),
+                                ),
+                              );
+                            }
+                          }
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Mẹo: Nếu khuôn mặt hoặc vân tay không nhận diện được, hệ thống sẽ tự động cho phép nhập Mật mã (PIN / Passcode) của thiết bị.',
+                      style: TextStyle(fontSize: 11, color: textSecondary, height: 1.35),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Widget _buildHelpButton(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
@@ -555,6 +730,8 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         actions: [
+          _buildSecurityButton(context),
+          const SizedBox(width: 8),
           _buildHelpButton(context),
           const SizedBox(width: 8),
           _buildThemeMenu(context),

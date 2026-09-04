@@ -60,4 +60,14 @@ void main() {
     await storageService.saveThemeMode(ThemeMode.system);
     expect(storageService.getThemeMode(), ThemeMode.system);
   });
+
+  test('Save and retrieve Biometric security setting', () async {
+    expect(storageService.isBiometricEnabled(), isFalse);
+
+    await storageService.setBiometricEnabled(true);
+    expect(storageService.isBiometricEnabled(), isTrue);
+
+    await storageService.setBiometricEnabled(false);
+    expect(storageService.isBiometricEnabled(), isFalse);
+  });
 }

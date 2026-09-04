@@ -47,5 +47,7 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Ứng dụng cần quyền truy cập Camera để quét mã QR kết nối Antigravity Remote.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Bảo vệ quyền truy cập và các phiên làm việc Antigravity bằng Face ID</string>
 </dict>
 </plist>

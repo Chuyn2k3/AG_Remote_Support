@@ -6,6 +6,7 @@ import '../../models/remote_session.dart';
 class StorageService {
   static const String _sessionsKey = 'antigravity_remote_sessions';
   static const String _themeModeKey = 'antigravity_theme_mode';
+  static const String _biometricEnabledKey = 'antigravity_biometric_enabled';
   final SharedPreferences _prefs;
 
   StorageService(this._prefs);
@@ -29,6 +30,15 @@ class StorageService {
     } else {
       await _prefs.setString(_themeModeKey, mode == ThemeMode.light ? 'light' : 'dark');
     }
+  }
+
+  // --- BIOMETRIC SECURITY ---
+  bool isBiometricEnabled() {
+    return _prefs.getBool(_biometricEnabledKey) ?? false;
+  }
+
+  Future<void> setBiometricEnabled(bool enabled) async {
+    await _prefs.setBool(_biometricEnabledKey, enabled);
   }
 
   // --- SESSIONS PERSISTENCE ---

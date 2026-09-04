@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'core/services/biometric_service.dart';
 import 'core/services/storage_service.dart';
 import 'core/theme/app_theme.dart';
 import 'screens/home/home_screen.dart';
+import 'screens/security/biometric_lock_screen.dart';
 
 final ValueNotifier<ThemeMode> appThemeNotifier = ValueNotifier<ThemeMode>(ThemeMode.system);
 
@@ -19,15 +21,55 @@ void main() async {
   );
 
   final storageService = await StorageService.init();
+  final biometricService = BiometricService();
   appThemeNotifier.value = storageService.getThemeMode();
 
-  runApp(AntigravityApp(storageService: storageService));
+  runApp(AntigravityApp(
+    storageService: storageService,
+    biometricService: biometricService,
+  ));
 }
 
-class AntigravityApp extends StatelessWidget {
+class AntigravityApp extends StatefulWidget {
   final StorageService storageService;
+  final BiometricService biometricService;
 
-  const AntigravityApp({super.key, required this.storageService});
+  const AntigravityApp({
+    super.key,
+    required this.storageService,
+    required this.biometricService,
+  });
+
+  @override
+  State<AntigravityApp> createState() => _AntigravityAppState();
+}
+
+class _AntigravityAppState extends State<AntigravityApp> with WidgetsBindingObserver {
+  late bool _isLocked;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _isLocked = widget.storageService.isBiometricEnabled();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      if (widget.storageService.isBiometricEnabled()) {
+        setState(() {
+          _isLocked = true;
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -41,9 +83,31 @@ class AntigravityApp extends StatelessWidget {
           darkTheme: AppTheme.darkTheme,
           themeMode: themeMode,
           home: HomeScreen(
-            storageService: storageService,
+            storageService: widget.storageService,
             themeNotifier: appThemeNotifier,
+            biometricService: widget.biometricService,
           ),
+          builder: (context, child) {
+            return Stack(
+              children: [
+                if (child != null) child,
+                if (_isLocked && widget.storageService.isBiometricEnabled())
+                  Positioned.fill(
+                    child: Material(
+                      type: MaterialType.transparency,
+                      child: BiometricLockScreen(
+                        biometricService: widget.biometricService,
+                        onAuthenticated: () {
+                          setState(() {
+                            _isLocked = false;
+                          });
+                        },
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          },
         );
       },
     );
