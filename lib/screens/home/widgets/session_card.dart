@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/url_parser.dart';
+import '../../../core/widgets/apple_card.dart';
 import '../../../core/widgets/status_dot.dart';
-import '../../../core/widgets/vht_card.dart';
 import '../../../models/remote_session.dart';
 
 class SessionCard extends StatelessWidget {
@@ -33,11 +33,15 @@ class SessionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final shortId = UrlParser.getShortSessionId(session.id);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryColor = isDark ? AppColors.darkPrimary : AppColors.lightPrimary;
+    final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final badgeBg = isDark ? AppColors.darkPrimaryLight : AppColors.lightPrimaryLight;
     final isRecent = DateTime.now().difference(session.lastAccessedAt).inHours < 2;
 
-    return VhtCard(
-      padding: const EdgeInsets.all(12),
+    return AppleCard(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       onTap: onConnect,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -49,23 +53,25 @@ class SessionCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   session.title,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
-                    color: AppColors.textPrimary,
+                    color: textPrimary,
+                    letterSpacing: -0.2,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
               if (session.isPinned)
-                const Padding(
-                  padding: EdgeInsets.only(right: 6),
-                  child: Icon(Icons.push_pin, size: 14, color: AppColors.brandPrimary),
+                Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: Icon(Icons.push_pin, size: 14, color: primaryColor),
                 ),
               PopupMenuButton<String>(
-                icon: const Icon(Icons.more_vert, size: 18, color: AppColors.textMuted),
-                color: AppColors.surfaceDarkElevated,
+                icon: Icon(Icons.more_horiz, size: 20, color: textSecondary),
+                color: isDark ? AppColors.darkSurfaceSecondary : AppColors.lightSurface,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 onSelected: (val) {
                   if (val == 'browser') onOpenInBrowser();
                   if (val == 'rename') onRename();
@@ -81,46 +87,44 @@ class SessionCard extends StatelessWidget {
                     value: 'browser',
                     child: Row(
                       children: [
-                        Icon(Icons.open_in_browser, size: 16, color: AppColors.accentCyan),
+                        Icon(Icons.open_in_browser, size: 16),
                         SizedBox(width: 8),
-                        Text('Mở qua Chrome/Safari'),
+                        Text('Mở trình duyệt ngoài'),
                       ],
                     ),
                   ),
                   const PopupMenuItem(
                     value: 'rename',
-                    child: Text('Đổi tên gợi nhớ'),
+                    child: Text('Đổi tên thiết bị'),
                   ),
                   const PopupMenuItem(
                     value: 'delete',
-                    child: Text('Xóa phiên này', style: TextStyle(color: AppColors.stateWarning)),
+                    child: Text('Xóa phiên này', style: TextStyle(color: AppColors.statusWarning)),
                   ),
                 ],
               ),
             ],
           ),
 
-          // Email account tag pill if available
           if (session.email != null) ...[
             const SizedBox(height: 4),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               decoration: BoxDecoration(
-                color: AppColors.brandPrimary.withOpacity(0.1),
+                color: badgeBg,
                 borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: AppColors.brandPrimary.withOpacity(0.25)),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.alternate_email, size: 11, color: AppColors.brandPrimaryLight),
+                  Icon(Icons.alternate_email, size: 11, color: primaryColor),
                   const SizedBox(width: 4),
                   Text(
                     session.email!,
-                    style: const TextStyle(
-                      fontSize: 10,
+                    style: TextStyle(
+                      fontSize: 11,
                       fontWeight: FontWeight.w500,
-                      color: AppColors.brandPrimaryLight,
+                      color: primaryColor,
                     ),
                   ),
                 ],
@@ -128,38 +132,34 @@ class SessionCard extends StatelessWidget {
             ),
           ],
 
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'ID: $shortId • ${_formatTime(session.lastAccessedAt)}',
-                style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                'ID: ${UrlParser.getShortSessionId(session.id)} • ${_formatTime(session.lastAccessedAt)}',
+                style: TextStyle(fontSize: 11, color: textSecondary),
               ),
-              Row(
-                children: [
-                  IconButton(
-                    tooltip: 'Mở bằng Chrome/Safari',
-                    constraints: const BoxConstraints(),
-                    padding: const EdgeInsets.all(6),
-                    icon: const Icon(Icons.open_in_browser, size: 18, color: AppColors.textSecondary),
-                    onPressed: onOpenInBrowser,
-                  ),
-                  const SizedBox(width: 6),
-                  OutlinedButton(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.brandPrimary,
-                      side: const BorderSide(color: AppColors.brandPrimary, width: 1),
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                      minimumSize: const Size(60, 28),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(6),
+              InkWell(
+                onTap: onConnect,
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  child: Row(
+                    children: [
+                      Text(
+                        'Vào lại',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: primaryColor,
+                        ),
                       ),
-                    ),
-                    onPressed: onConnect,
-                    child: const Text('Vào lại', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                      const SizedBox(width: 2),
+                      Icon(Icons.arrow_forward_ios, size: 10, color: primaryColor),
+                    ],
                   ),
-                ],
+                ),
               ),
             ],
           ),

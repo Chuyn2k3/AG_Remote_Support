@@ -4,6 +4,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/url_parser.dart';
 import '../../core/services/storage_service.dart';
+import '../../core/widgets/apple_card.dart';
 import '../../models/remote_session.dart';
 import '../scanner/scanner_screen.dart';
 import '../remote/remote_screen.dart';
@@ -94,12 +95,15 @@ class _HomeScreenState extends State<HomeScreen> {
       _handleScannedUrl(text);
     } else {
       if (mounted) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: AppColors.surfaceDark,
+          SnackBar(
+            backgroundColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
             content: Text(
               'Clipboard không chứa link Antigravity hợp lệ',
-              style: TextStyle(color: AppColors.stateWarning),
+              style: TextStyle(
+                color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
+              ),
             ),
           ),
         );
@@ -108,28 +112,37 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _showRenameDialog(RemoteSession session) async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryColor = isDark ? AppColors.darkPrimary : AppColors.lightPrimary;
+    final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+
     final controller = TextEditingController(text: session.title);
     final newTitle = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.surfaceDarkElevated,
-        title: const Text('Đổi tên phiên làm việc', style: TextStyle(fontSize: 16)),
+        backgroundColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          'Đổi tên thiết bị',
+          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: textPrimary),
+        ),
         content: TextField(
           controller: controller,
           autofocus: true,
-          style: const TextStyle(color: AppColors.textPrimary),
-          decoration: const InputDecoration(
+          style: TextStyle(color: textPrimary),
+          decoration: InputDecoration(
             hintText: 'Ví dụ: MacBook Công Ty',
-            hintStyle: TextStyle(color: AppColors.textMuted),
-            enabledBorder: UnderlineInputBorder(
-              borderSide: BorderSide(color: AppColors.brandPrimary),
+            hintStyle: TextStyle(color: textSecondary),
+            focusedBorder: UnderlineInputBorder(
+              borderSide: BorderSide(color: primaryColor, width: 2),
             ),
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Hủy', style: TextStyle(color: AppColors.textMuted)),
+            child: Text('Hủy', style: TextStyle(color: textSecondary)),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, controller.text.trim()),
@@ -146,34 +159,123 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _setThemeMode(ThemeMode mode) async {
+    if (widget.themeNotifier != null) {
+      widget.themeNotifier!.value = mode;
+    }
+    await widget.storageService.saveThemeMode(mode);
+    setState(() {});
+  }
+
+  Widget _buildThemeMenu(BuildContext context) {
+    final currentMode = widget.themeNotifier?.value ?? widget.storageService.getThemeMode();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+
+    IconData themeIcon;
+    if (currentMode == ThemeMode.light) {
+      themeIcon = Icons.light_mode;
+    } else if (currentMode == ThemeMode.dark) {
+      themeIcon = Icons.dark_mode;
+    } else {
+      themeIcon = isDark ? Icons.brightness_auto : Icons.brightness_auto_outlined;
+    }
+
+    return PopupMenuButton<ThemeMode>(
+      tooltip: 'Chế độ giao diện',
+      icon: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: isDark ? AppColors.darkSurfaceSecondary : AppColors.lightSurfaceSecondary,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(themeIcon, size: 18, color: textSecondary),
+      ),
+      color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      onSelected: _setThemeMode,
+      itemBuilder: (context) => [
+        PopupMenuItem(
+          value: ThemeMode.system,
+          child: Row(
+            children: [
+              const Icon(Icons.brightness_auto, size: 18),
+              const SizedBox(width: 10),
+              const Text('Hệ thống (Tự động)'),
+              if (currentMode == ThemeMode.system) ...[
+                const Spacer(),
+                Icon(Icons.check, size: 16, color: isDark ? AppColors.darkPrimary : AppColors.lightPrimary),
+              ],
+            ],
+          ),
+        ),
+        PopupMenuItem(
+          value: ThemeMode.light,
+          child: Row(
+            children: [
+              const Icon(Icons.light_mode, size: 18),
+              const SizedBox(width: 10),
+              const Text('Giao diện Sáng'),
+              if (currentMode == ThemeMode.light) ...[
+                const Spacer(),
+                Icon(Icons.check, size: 16, color: isDark ? AppColors.darkPrimary : AppColors.lightPrimary),
+              ],
+            ],
+          ),
+        ),
+        PopupMenuItem(
+          value: ThemeMode.dark,
+          child: Row(
+            children: [
+              const Icon(Icons.dark_mode, size: 18),
+              const SizedBox(width: 10),
+              const Text('Giao diện Tối'),
+              if (currentMode == ThemeMode.dark) ...[
+                const Spacer(),
+                Icon(Icons.check, size: 16, color: isDark ? AppColors.darkPrimary : AppColors.lightPrimary),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+
     return Scaffold(
-      backgroundColor: AppColors.bgDark,
       appBar: AppBar(
-        title: Row(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: AppColors.brandPrimary.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: AppColors.brandPrimary.withOpacity(0.4)),
-              ),
-              child: const Text(
-                'REMOTE 2.0',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.brandPrimaryLight,
-                  letterSpacing: 0.5,
-                ),
+            Text(
+              'Antigravity',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: textPrimary,
+                letterSpacing: -0.4,
               ),
             ),
-            const SizedBox(width: 8),
-            const Text('Antigravity Hub'),
+            Text(
+              'Remote Manager',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: textSecondary,
+              ),
+            ),
           ],
         ),
+        actions: [
+          _buildThemeMenu(context),
+          const SizedBox(width: 12),
+        ],
       ),
       body: SafeArea(
         child: ListView(
@@ -187,59 +289,60 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 24),
 
             // Section Header
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'PHIÊN GẦN ĐÂY',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textSecondary,
-                    letterSpacing: 0.8,
-                  ),
-                ),
-                if (_sessions.isNotEmpty)
-                  TextButton(
-                    onPressed: () async {
-                      await widget.storageService.clearAll();
-                      _loadSessions();
-                    },
-                    child: const Text(
-                      'Xóa tất cả',
-                      style: TextStyle(fontSize: 11, color: AppColors.textMuted),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'THIẾT BỊ GẦN ĐÂY',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: textSecondary,
+                      letterSpacing: 0.6,
                     ),
                   ),
-              ],
+                  if (_sessions.isNotEmpty)
+                    TextButton(
+                      onPressed: () async {
+                        await widget.storageService.clearAll();
+                        _loadSessions();
+                      },
+                      child: Text(
+                        'Xóa tất cả',
+                        style: TextStyle(fontSize: 11, color: textSecondary),
+                      ),
+                    ),
+                ],
+              ),
             ),
             const SizedBox(height: 8),
 
             // Sessions List or Empty State
             if (_sessions.isEmpty)
-              Container(
+              AppleCard(
                 padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 20),
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceDark.withOpacity(0.5),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.borderSubtle),
-                ),
-                child: const Column(
+                child: Column(
                   children: [
-                    Icon(Icons.devices_other, size: 36, color: AppColors.textMuted),
-                    SizedBox(height: 12),
+                    Icon(
+                      Icons.devices_rounded,
+                      size: 40,
+                      color: textSecondary,
+                    ),
+                    const SizedBox(height: 12),
                     Text(
-                      'Chưa có phiên làm việc nào',
+                      'Chưa có thiết bị nào',
                       style: TextStyle(
-                        fontSize: 14,
+                        fontSize: 15,
                         fontWeight: FontWeight.w600,
-                        color: AppColors.textPrimary,
+                        color: textPrimary,
                       ),
                     ),
-                    SizedBox(height: 4),
+                    const SizedBox(height: 4),
                     Text(
-                      'Quét mã QR trên Antigravity Desktop để bắt đầu điều khiển.',
-                      style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                      'Mở Antigravity 2.0 trên máy tính và bấm "Mở Camera" để kết nối.',
+                      style: TextStyle(fontSize: 12, color: textSecondary),
                       textAlign: TextAlign.center,
                     ),
                   ],
