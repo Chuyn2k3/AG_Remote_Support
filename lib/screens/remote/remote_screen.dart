@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ui';
+import 'dart:collection';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -18,6 +19,266 @@ import 'session_tab_bar.dart';
 import 'widgets/floating_capsule.dart';
 import 'widgets/voice_prompt_modal.dart';
 import 'widgets/git_actions_modal.dart';
+
+/// Script quan sát AI chạy trên mọi frame (bao gồm cả iframe chat của Antigravity)
+const String _aiObserverScript = r'''
+(function() {
+  if (window.__agObserverInitialized) return;
+  window.__agObserverInitialized = true;
+
+  // 1. Mock window.nativeNotifications (Antigravity's internal Electron bridge)
+  try {
+    window.nativeNotifications = {
+      onClicked: function(cb) { window._agNotiClicked = cb; },
+      send: function(noti) {
+        try {
+          console.log('[AG NativeNotification] ' + JSON.stringify(noti || {}));
+        } catch(e) {
+          console.log('[AG NativeNotification] {"title":"Antigravity Notification"}');
+        }
+      },
+      openSystemPreferences: function() {},
+      clearNotifications: function() {}
+    };
+  } catch(e) {}
+
+  // 2. Mock HTML5 Notification API with granted permission
+  try {
+    if (typeof window.Notification === 'undefined' || window.Notification.permission !== 'granted') {
+      function MockNotification(title, options) {
+        try {
+          console.log('[AG WebNotification] ' + JSON.stringify({
+            title: title,
+            body: (options && options.body) || ''
+          }));
+        } catch(e) {}
+      }
+      MockNotification.permission = 'granted';
+      MockNotification.requestPermission = function() { return Promise.resolve('granted'); };
+      window.Notification = MockNotification;
+    }
+  } catch(e) {}
+
+  let isWaitingForResponse = false;
+  let hasStartedGenerating = false;
+  let promptSentTime = 0;
+  let promptSentTextLength = 0;
+  let lastTextLength = 0;
+  let lastActivityTime = Date.now();
+  let notified = true;
+  let lastInputValLength = 0;
+
+  function getAllText() {
+    try {
+      return document.body ? (document.body.innerText || '') : '';
+    } catch(e) { return ''; }
+  }
+
+  function extractPreview() {
+    try {
+      const candidates = document.querySelectorAll(
+        '.model-response, [data-role="model"], ' +
+        '.response-text, .message-content, ' +
+        '[class*="response"], [class*="message"], ' +
+        '[class*="agent"], [class*="assistant"], ' +
+        'pre, code, p'
+      );
+      if (candidates.length > 0) {
+        for (let i = candidates.length - 1; i >= 0; i--) {
+          const t = (candidates[i].innerText || '').trim();
+          if (t.length > 10) {
+            return t.substring(0, 150);
+          }
+        }
+      }
+      const full = getAllText().trim();
+      return full.length > 150 ? full.substring(full.length - 150) : full;
+    } catch(e) {
+      return 'Đã hoàn thành phản hồi!';
+    }
+  }
+
+  function checkIsGenerating() {
+    try {
+      const stopKeywords = ['stop', 'cancel', 'dừng', 'hủy', 'abort', 'pause', 'interrupt', 'terminate', 'halt'];
+      const buttons = document.querySelectorAll('button, [role="button"], a, div[tabindex]');
+      for (let i = 0; i < buttons.length; i++) {
+        const b = buttons[i];
+        const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+        const title = (b.getAttribute('title') || '').toLowerCase();
+        const text = (b.innerText || '').toLowerCase().trim();
+        const cls = (b.className || '').toString().toLowerCase();
+        for (let k = 0; k < stopKeywords.length; k++) {
+          const kw = stopKeywords[k];
+          if (aria.includes(kw) || title.includes(kw) || text === kw || cls.includes(kw)) {
+            return true;
+          }
+        }
+      }
+      const icons = document.querySelectorAll('mat-icon, .google-symbols, i, svg, [class*="codicon"]');
+      for (let j = 0; j < icons.length; j++) {
+        const el = icons[j];
+        const t = (el.innerText || '').toLowerCase().trim();
+        const cls = (el.className || '').toString().toLowerCase();
+        if (t === 'stop' || t === 'pause' || t === 'stop_circle' || t === 'cancel' ||
+            cls.includes('stop') || cls.includes('pause') || cls.includes('codicon-debug-stop') || cls.includes('codicon-stop')) {
+          return true;
+        }
+      }
+      if (document.querySelector(
+        '[aria-busy="true"], mat-progress-bar, mat-spinner, .mat-mdc-progress-bar, ' +
+        'mwc-circular-progress, [data-is-generating="true"], [data-status="generating"], ' +
+        '.loading, .spinner, .typing, .streaming, .cursor, .blinking-cursor, ' +
+        '[class*="generating"], [class*="streaming"], [class*="thinking"], [class*="in-progress"]'
+      )) {
+        return true;
+      }
+    } catch(e) {}
+    return false;
+  }
+
+  function notifyPromptSent() {
+    isWaitingForResponse = true;
+    hasStartedGenerating = false;
+    notified = false;
+    promptSentTime = Date.now();
+    lastActivityTime = Date.now();
+    promptSentTextLength = getAllText().length;
+    lastTextLength = promptSentTextLength;
+    console.log('[AG Remote] User sent prompt');
+    try {
+      if (window.flutter_inappwebview) {
+        window.flutter_inappwebview.callHandler('onUserPromptSent');
+      }
+    } catch(e) {}
+  }
+
+  window.addEventListener('keydown', function(e) {
+    if ((e.key === 'Enter' || e.keyCode === 13 || e.which === 13) && !e.shiftKey) {
+      notifyPromptSent();
+    }
+  }, true);
+
+  window.addEventListener('beforeinput', function(e) {
+    if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') {
+      notifyPromptSent();
+    }
+  }, true);
+
+  window.addEventListener('input', function(e) {
+    const target = e.target;
+    if (target && (target.tagName === 'TEXTAREA' || target.isContentEditable || target.tagName === 'INPUT')) {
+      const val = (target.value || target.innerText || '').trim();
+      const curLen = val.length;
+      if (lastInputValLength >= 2 && curLen === 0) {
+        notifyPromptSent();
+      }
+      lastInputValLength = curLen;
+    }
+  }, true);
+
+  window.addEventListener('click', function(e) {
+    const btn = e.target.closest('button, [role="button"], a, mat-icon, svg, [class*="send"], [class*="submit"], [class*="action"]');
+    if (btn) {
+      const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+      const title = (btn.getAttribute('title') || '').toLowerCase();
+      const text = (btn.innerText || '').toLowerCase();
+      const cls = (btn.className || '').toString().toLowerCase();
+      if (label.includes('send') || label.includes('gửi') || label.includes('submit') || label.includes('run') ||
+          label.includes('generate') || label.includes('execute') || label.includes('prompt') ||
+          title.includes('send') || title.includes('gửi') || title.includes('run') || title.includes('execute') ||
+          text.includes('send') || text.includes('gửi') || text.includes('chạy') ||
+          cls.includes('send') || cls.includes('submit') || cls.includes('run') || cls.includes('codicon-send') ||
+          btn.type === 'submit') {
+        notifyPromptSent();
+      }
+    }
+  }, true);
+
+  function checkStatus() {
+    try {
+      const generating = checkIsGenerating();
+      const currentLen = getAllText().length;
+
+      if (lastTextLength === 0 && currentLen > 0) {
+        lastTextLength = currentLen;
+      }
+
+      // Xác định khi AI bắt đầu sinh (có Stop button hoặc text bắt đầu dài thêm do câu trả lời)
+      if (isWaitingForResponse || hasStartedGenerating) {
+        if (generating) {
+          if (!hasStartedGenerating) {
+            hasStartedGenerating = true;
+            console.log('[AG Remote] AI is generating');
+          }
+          lastActivityTime = Date.now();
+        } else if (currentLen > promptSentTextLength + 6) {
+          if (!hasStartedGenerating) {
+            hasStartedGenerating = true;
+            console.log('[AG Remote] AI is generating');
+          }
+          if (currentLen > lastTextLength + 2) {
+            lastActivityTime = Date.now();
+            lastTextLength = currentLen;
+          }
+        }
+      }
+
+      // CHỈ kích hoạt hoàn thành khi AI ĐÃ THỰC SỰ BẮT ĐẦU SINH và giờ đã dừng lại
+      if (hasStartedGenerating && !generating && !notified) {
+        const idleTime = Date.now() - lastActivityTime;
+        // Chờ ít nhất 2.2 giây sau khi text dừng thay đổi
+        if (idleTime >= 2200) {
+          isWaitingForResponse = false;
+          hasStartedGenerating = false;
+          notified = true;
+          lastTextLength = currentLen;
+          const preview = extractPreview();
+          console.log('[AG Remote] AI completed: ' + preview);
+          try {
+            if (window.flutter_inappwebview) {
+              window.flutter_inappwebview.callHandler('onAIResponseDone', preview);
+            }
+          } catch(e) {}
+        }
+      }
+    } catch(e) {}
+  }
+
+  window.addEventListener('message', function(ev) {
+    if (ev.data && (ev.data.type === 'AG_CHECK_STATUS' || ev.data.type === 'AG_PING')) {
+      checkStatus();
+    }
+  });
+
+  try {
+    if (document.body) {
+      const observer = new MutationObserver(checkStatus);
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+        attributes: true
+      });
+    } else {
+      document.addEventListener('DOMContentLoaded', function() {
+        if (document.body) {
+          const observer = new MutationObserver(checkStatus);
+          observer.observe(document.body, {
+            childList: true,
+            subtree: true,
+            characterData: true,
+            attributes: true
+          });
+        }
+      });
+    }
+  } catch(e) {}
+
+  setInterval(checkStatus, 800);
+  console.log('[AG Remote] Enhanced AI Response Observer active in frame: ' + window.location.href);
+})();
+''';
 
 /// State riêng cho từng tab WebView
 class _TabState {
@@ -77,9 +338,11 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
   final NativeBubbleService _nativeBubbleService = NativeBubbleService();
   bool _bubbleActive = false;
 
-  // ── AI Response Watcher state (Dart Poller) ──────────────────────────────
+  // ── AI Response Watcher state (Dart Poller & Console Event Bus) ──────────
   Timer? _aiResponsePollingTimer;
+  Timer? _aiStreamDebounceTimer;
   bool _aiIsWorking = false;
+  bool _hasStartedStreaming = false;
   bool _aiNotified = true;
   int _aiLastTextLength = 0;
   DateTime? _aiLastActivityTime;
@@ -334,12 +597,142 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
     }
   }
 
+  void _onUserPromptSubmitted(String sessionTitle, [String? reason]) {
+    debugPrint('[AI Monitor] User Prompt Submitted: $reason');
+    _aiIsWorking = true;
+    _hasStartedStreaming = false; // CHƯA nhận được token, tuyệt đối KHÔNG được báo hoàn thành!
+    _aiNotified = false;
+    _aiLastActivityTime = DateTime.now();
+    _aiStreamDebounceTimer?.cancel(); // Hủy mọi debounce timer trước đó
+    _aiStreamDebounceTimer = null;
+
+    _nativeBubbleService.startForegroundWatcher(title: sessionTitle);
+    _nativeBubbleService.updateBubbleStatus('thinking');
+    if (mounted) setState(() {});
+  }
+
+  void _onAITokenStreaming(String sessionTitle, [String? reason]) {
+    debugPrint('[AI Monitor] AI Streaming: $reason');
+    _aiIsWorking = true;
+    _hasStartedStreaming = true; // ĐÃ bắt đầu nhận token / sinh câu trả lời!
+    _aiNotified = false;
+    _aiLastActivityTime = DateTime.now();
+    _resetStreamDebounceTimer(sessionTitle);
+    if (mounted) setState(() {});
+  }
+
+  void _resetStreamDebounceTimer(String sessionTitle) {
+    _aiStreamDebounceTimer?.cancel();
+    // Chờ 3.8 giây nếu không còn token/sự kiện nào phát sinh SAU KHI ĐÃ BẮT ĐẦU STREAM -> Hoàn thành
+    _aiStreamDebounceTimer = Timer(const Duration(milliseconds: 3800), () {
+      if (_aiIsWorking && _hasStartedStreaming && !_aiNotified) {
+        debugPrint('[AI Monitor] Inactivity stream debounce reached. AI completed turn.');
+        _onAICompleted(sessionTitle, _aiLastPreview.isNotEmpty ? _aiLastPreview : null);
+      }
+    });
+  }
+
+  Future<void> _onAICompleted(String sessionTitle, [String? preview, bool force = false]) async {
+    // Ngăn chặn nổ thông báo non khi AI chưa từng bắt đầu stream câu trả lời
+    if (!force && !_hasStartedStreaming) {
+      debugPrint('[AI Monitor] Bỏ qua hoàn thành sớm: AI chưa từng stream token nào!');
+      return;
+    }
+    if (_aiNotified) return;
+
+    debugPrint('[AI Monitor] AI Completed! Showing notification. Preview: $preview');
+    _aiStreamDebounceTimer?.cancel();
+    _aiStreamDebounceTimer = null;
+
+    _aiIsWorking = false;
+    _hasStartedStreaming = false;
+    _aiNotified = true;
+    if (mounted) setState(() {});
+
+    final sendPreview = (preview != null && preview.trim().isNotEmpty)
+        ? preview.trim()
+        : (_aiLastPreview.isNotEmpty ? _aiLastPreview : 'Antigravity đã hoàn thành phản hồi.');
+
+    await _notificationService.showAICompletedNotification(
+      sessionName: sessionTitle,
+      preview: sendPreview,
+    );
+    await _nativeBubbleService.updateBubbleStatus('online');
+    await _nativeBubbleService.stopForegroundWatcher();
+  }
+
+  void _handleConsoleMessage(int tabIndex, _TabState tab, String msg) {
+    final sessionTitle = tab.session.title;
+
+    // 1. Antigravity native log từ main.js: [TTFT] Time to first token: 5846ms (turn 5)
+    if (msg.contains('[TTFT]') || msg.contains('Time to first token')) {
+      final turnMatch = RegExp(r'\(turn\s*(\d+)\)').firstMatch(msg);
+      final turnStr = turnMatch != null ? ' (Lượt ${turnMatch.group(1)})' : '';
+      _onAITokenStreaming(sessionTitle, 'Antigravity TTFT token stream started$turnStr');
+      return;
+    }
+
+    // 2. Observer: Người dùng vừa gửi prompt trong iframe chat
+    if (msg.contains('[AG Remote] User sent prompt')) {
+      _onUserPromptSubmitted(sessionTitle, 'User submitted prompt inside chat iframe');
+      return;
+    }
+
+    // 3. Observer: AI đang hiển thị chỉ thị sinh (Stop button, stream text)
+    if (msg.contains('[AG Remote] AI is generating')) {
+      _onAITokenStreaming(sessionTitle, 'AI generation indicator active in chat iframe');
+      return;
+    }
+
+    // 4. Observer: AI đã hoàn thành phản hồi trong iframe chat
+    if (msg.contains('[AG Remote] AI completed:')) {
+      final preview = msg.replaceFirst('[AG Remote] AI completed:', '').trim();
+      if (preview.isNotEmpty) _aiLastPreview = preview;
+      _onAICompleted(sessionTitle, preview.isNotEmpty ? preview : null);
+      return;
+    }
+
+    // 5. Thông báo gốc từ Antigravity (qua mock window.nativeNotifications.send)
+    if (msg.contains('[AG NativeNotification]')) {
+      final jsonStr = msg.replaceFirst('[AG NativeNotification]', '').trim();
+      String? notiPreview;
+      try {
+        final map = jsonDecode(jsonStr) as Map<String, dynamic>;
+        notiPreview = map['body']?.toString() ?? map['title']?.toString();
+      } catch (_) {}
+      _onAICompleted(sessionTitle, notiPreview ?? 'Antigravity đã hoàn thành tác vụ!', true);
+      return;
+    }
+
+    // 6. Web notification từ Antigravity (qua mock HTML5 Notification)
+    if (msg.contains('[AG WebNotification]')) {
+      final jsonStr = msg.replaceFirst('[AG WebNotification]', '').trim();
+      String? notiPreview;
+      try {
+        final map = jsonDecode(jsonStr) as Map<String, dynamic>;
+        notiPreview = map['body']?.toString() ?? map['title']?.toString();
+      } catch (_) {}
+      _onAICompleted(sessionTitle, notiPreview ?? 'Antigravity đã hoàn thành tác vụ!', true);
+      return;
+    }
+
+    // 7. Khi AI đang sinh, các log hoạt động sẽ reset debounce timer để không kết thúc sớm
+    if (_hasStartedStreaming && !_aiNotified) {
+      if (!msg.contains('ResizeObserver') && !msg.contains('TouchIcon') && !msg.contains('ConfigService') && !msg.contains('GPUAUX')) {
+        _aiLastActivityTime = DateTime.now();
+        _resetStreamDebounceTimer(sessionTitle);
+      }
+    }
+  }
+
   void _handleAIDetectionTick({
     required bool isGenerating,
     required int textLen,
     required String preview,
     required bool userRecentlySent,
   }) {
+    final sessionTitle = _activeTab.session.title;
+
     // 1. Khởi tạo baseline ban đầu nếu chưa có
     if (_aiLastTextLength == 0 && textLen > 0) {
       _aiLastTextLength = textLen;
@@ -349,39 +742,24 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
 
     // 2. Người dùng vừa gửi câu lệnh
     if (userRecentlySent) {
-      _aiIsWorking = true;
-      _aiNotified = false;
-      _aiLastActivityTime = DateTime.now();
       _aiLastTextLength = textLen;
-      debugPrint('[AI Monitor] User sent prompt! Foreground watcher activated.');
-      _nativeBubbleService.startForegroundWatcher(title: _activeTab.session.title);
-      _nativeBubbleService.updateBubbleStatus('thinking');
+      _onUserPromptSubmitted(sessionTitle, 'User sent prompt detected by Dart poller');
       return;
     }
 
     // 3. AI đang có chỉ thị sinh (Stop button, spinner, cursor)
     if (isGenerating) {
-      _aiIsWorking = true;
-      _aiNotified = false;
-      _aiLastActivityTime = DateTime.now();
       _aiLastTextLength = textLen;
       if (preview.isNotEmpty) _aiLastPreview = preview;
-      debugPrint('[AI Monitor] AI is generating by indicator (text len: $textLen)...');
-      _nativeBubbleService.startForegroundWatcher(title: _activeTab.session.title);
-      _nativeBubbleService.updateBubbleStatus('thinking');
+      _onAITokenStreaming(sessionTitle, 'AI generating indicator detected by Dart poller');
       return;
     }
 
     // 4. Nếu text dài ra > 8 ký tự -> Có nội dung mới đang stream hoặc message mới
     if (textLen > _aiLastTextLength + 8) {
-      _aiIsWorking = true;
-      _aiNotified = false;
-      _aiLastActivityTime = DateTime.now();
       _aiLastTextLength = textLen;
       if (preview.isNotEmpty) _aiLastPreview = preview;
-      debugPrint('[AI Monitor] Text growth detected ($textLen chars, +${textLen - _aiLastTextLength}). Activating watcher...');
-      _nativeBubbleService.startForegroundWatcher(title: _activeTab.session.title);
-      _nativeBubbleService.updateBubbleStatus('thinking');
+      _onAITokenStreaming(sessionTitle, 'Text growth (+${textLen - _aiLastTextLength} chars)');
       return;
     }
 
@@ -389,25 +767,20 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
     if (textLen < _aiLastTextLength - 50) {
       _aiLastTextLength = textLen;
       _aiIsWorking = false;
+      _hasStartedStreaming = false;
       return;
     }
 
     // 6. Khi AI đã từng xử lý câu lệnh VÀ không còn sinh nữa VÀ text dừng thay đổi trong 2.0s
-    if (_aiIsWorking && !isGenerating && !_aiNotified) {
+    if (_hasStartedStreaming && !isGenerating && !_aiNotified) {
       final lastTime = _aiLastActivityTime ?? DateTime.now();
       final elapsed = DateTime.now().difference(lastTime).inMilliseconds;
       if (elapsed >= 2000) {
-        _aiIsWorking = false;
-        _aiNotified = true;
-        _aiLastTextLength = textLen; // Cập nhật mốc mới cho câu lệnh kế tiếp
-        debugPrint('[AI Monitor] AI completed response! Triggering notification and releasing watcher...');
-        final sendPreview = _aiLastPreview.isNotEmpty ? _aiLastPreview : (preview.isNotEmpty ? preview : null);
-        _notificationService.showAICompletedNotification(
-          sessionName: _activeTab.session.title,
-          preview: sendPreview,
+        _aiLastTextLength = textLen;
+        _onAICompleted(
+          sessionTitle,
+          _aiLastPreview.isNotEmpty ? _aiLastPreview : (preview.isNotEmpty ? preview : null),
         );
-        _nativeBubbleService.updateBubbleStatus('online');
-        _nativeBubbleService.stopForegroundWatcher();
       }
     }
   }
@@ -417,6 +790,7 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
     WidgetsBinding.instance.removeObserver(this);
     _disconnectCheckTimer?.cancel();
     _aiResponsePollingTimer?.cancel();
+    _aiStreamDebounceTimer?.cancel();
     _speechService.cancelListening();
     _nativeBubbleService.stopForegroundWatcher();
     WakelockService.disable();
@@ -1038,7 +1412,6 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
                 onGitActions: _openGitActionsModal,
                 onBubble: _toggleBubble,
                 bubbleActive: _bubbleActive,
-                onTestNotification: _testNotification,
                 onToggleSplit: _toggleSplitScreen,
                 isSplitActive: _isSplitScreen,
                 onToggleOrientation: _toggleOrientation,
@@ -1066,50 +1439,66 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
       initialUrlRequest: URLRequest(
         url: WebUri(HeartbeatService.getTargetUrl(tab.session)),
       ),
+      initialUserScripts: UnmodifiableListView<UserScript>([
+        UserScript(
+          groupName: 'ag_observer',
+          source: _aiObserverScript,
+          injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+          forMainFrameOnly: false,
+          allowedOriginRules: {'*'},
+        ),
+      ]),
       initialSettings: InAppWebViewSettings(
         userAgent: customUserAgent,
         javaScriptEnabled: true,
         domStorageEnabled: true,
+        databaseEnabled: true,
         thirdPartyCookiesEnabled: true,
         cacheEnabled: true,
         supportMultipleWindows: false,
-        javaScriptCanOpenWindowsAutomatically: true,
-        mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
+        javaScriptCanOpenWindowsAutomatically: false,
+        mixedContentMode: MixedContentMode.MIXED_CONTENT_NEVER_ALLOW,
         useHybridComposition: true,
         requestedWithHeaderOriginAllowList: <String>{},
+        allowFileAccessFromFileURLs: false,
+        allowUniversalAccessFromFileURLs: false,
+        allowContentAccess: false,
+        allowBackgroundAudioPlaying: true,
       ),
       onWebViewCreated: (controller) {
         tab.controller = controller;
-        // Đăng ký JS handler nhận callback khi AI hoàn thành
+        // Đăng ký JS handler nhận callback khi AI hoàn thành với kiểm tra Origin an toàn
         controller.addJavaScriptHandler(
           handlerName: 'onAIResponseDone',
           callback: (args) async {
-            final String preview = args.isNotEmpty ? args[0].toString() : '';
-            debugPrint('[AI Tab $tabIndex] JS Response done. Preview: $preview');
-            if (!_aiNotified) {
-              _aiIsWorking = false;
-              _aiNotified = true;
-              await _notificationService.showAICompletedNotification(
-                sessionName: tab.session.title,
-                preview: preview.isNotEmpty ? preview : null,
-              );
-              await _nativeBubbleService.updateBubbleStatus('online');
-              await _nativeBubbleService.stopForegroundWatcher();
+            final currentUrl = await controller.getUrl();
+            final host = currentUrl?.host.toLowerCase() ?? '';
+            if (!host.endsWith('.google.com') && !host.endsWith('.usercontent.goog')) {
+              debugPrint('[Security] Untrusted origin attempted JS onAIResponseDone: $host');
+              return;
             }
+            final String preview = args.isNotEmpty ? args[0].toString() : '';
+            debugPrint('[AI Tab $tabIndex] JS onAIResponseDone. Preview: $preview');
+            _onAICompleted(tab.session.title, preview.isNotEmpty ? preview : null);
           },
         );
-        // Đăng ký JS handler nhận callback khi người dùng gửi prompt
+        // Đăng ký JS handler nhận callback khi người dùng gửi prompt với kiểm tra Origin an toàn
         controller.addJavaScriptHandler(
           handlerName: 'onUserPromptSent',
-          callback: (args) {
+          callback: (args) async {
+            final currentUrl = await controller.getUrl();
+            final host = currentUrl?.host.toLowerCase() ?? '';
+            if (!host.endsWith('.google.com') && !host.endsWith('.usercontent.goog')) {
+              debugPrint('[Security] Untrusted origin attempted JS onUserPromptSent: $host');
+              return;
+            }
             debugPrint('[AI Tab $tabIndex] JS onUserPromptSent received!');
-            _aiIsWorking = true;
-            _aiNotified = false;
-            _aiLastActivityTime = DateTime.now();
-            _nativeBubbleService.startForegroundWatcher(title: tab.session.title);
-            _nativeBubbleService.updateBubbleStatus('thinking');
+            _onUserPromptSubmitted(tab.session.title, 'onUserPromptSent handler');
           },
         );
+      },
+      onConsoleMessage: (controller, consoleMessage) {
+        _handleConsoleMessage(tabIndex, tab, consoleMessage.message);
       },
       onLoadStart: (controller, url) {
         if (!mounted) return;
@@ -1129,13 +1518,42 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
             _checkInstanceDisconnection();
           }
         });
-        Future.delayed(const Duration(seconds: 2), () {
+        Future.delayed(const Duration(milliseconds: 1500), () {
           if (mounted) {
             _injectAIResponseObserver(controller);
           }
         });
       },
       shouldOverrideUrlLoading: (controller, navigationAction) async {
+        final uri = navigationAction.request.url;
+        if (uri == null) return NavigationActionPolicy.CANCEL;
+
+        // 1. Chỉ chấp nhận giao thức HTTPS an toàn
+        if (uri.scheme != 'https') {
+          return NavigationActionPolicy.CANCEL;
+        }
+
+        // 2. Kiểm tra danh sách miền được phép (Domain Whitelist)
+        final host = uri.host.toLowerCase();
+        final bool isAllowed = host == 'antigravity.google.com' ||
+            host == 'accounts.google.com' ||
+            host.endsWith('.google.com') ||
+            host.endsWith('.usercontent.goog');
+
+        if (!isAllowed) {
+          debugPrint('[Security] Blocked unauthorized navigation attempt to: $host');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                backgroundColor: const Color(0xFFE53935),
+                content: Text('⚠️ Chặn điều hướng không an toàn tới: $host'),
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          }
+          return NavigationActionPolicy.CANCEL;
+        }
+
         return NavigationActionPolicy.ALLOW;
       },
       onProgressChanged: (controller, progress) {
@@ -1467,11 +1885,7 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
         );
       } else {
         if (autoSubmit) {
-          _aiIsWorking = true;
-          _aiNotified = false;
-          _aiLastActivityTime = DateTime.now();
-          _nativeBubbleService.startForegroundWatcher(title: _activeTab.session.title);
-          _nativeBubbleService.updateBubbleStatus('thinking');
+          _onUserPromptSubmitted(_activeTab.session.title, 'Prompt autoSubmit from modal');
         }
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1487,224 +1901,28 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
     }
   }
 
-  /// Inject JavaScript để detect khi AI hoàn thành response:
-  /// 1. Bắt sự kiện người dùng gửi câu lệnh (Enter / Click Send)
-  /// 2. Bắt các trạng thái đang sinh (nút Dừng, Stop icon, loading indicator, stream text)
-  /// 3. Khi trạng thái đang sinh kết thúc VÀ văn bản ngừng thay đổi trong 1.5s → Bắn thông báo
+  /// Inject JavaScript để detect khi AI hoàn thành response
   Future<void> _injectAIResponseObserver([InAppWebViewController? targetController]) async {
     final controller = targetController ?? _webViewController;
     if (controller == null) return;
 
-    await controller.evaluateJavascript(source: '''
-      (function() {
-        if (window.__agAIObserverActive) return;
-        window.__agAIObserverActive = true;
-
-        let isWorking = false;
-        let lastTextLength = 0;
-        let lastActivityTime = Date.now();
-        let notified = true;
-        let lastInputValLength = 0;
-
-        function getAllText() {
-          return document.body ? (document.body.innerText || '') : '';
-        }
-
-        function checkTree(root) {
-          const stopKeywords = ['stop', 'cancel', 'dừng', 'hủy', 'abort', 'pause', 'interrupt', 'terminate', 'halt'];
-          const buttons = root.querySelectorAll('button, [role="button"], a, div[tabindex]');
-          for (let i = 0; i < buttons.length; i++) {
-            const b = buttons[i];
-            const aria = (b.getAttribute('aria-label') || '').toLowerCase();
-            const title = (b.getAttribute('title') || '').toLowerCase();
-            const text = (b.innerText || '').toLowerCase().trim();
-            const cls = (b.className || '').toString().toLowerCase();
-            for (let k = 0; k < stopKeywords.length; k++) {
-              const kw = stopKeywords[k];
-              if (aria.includes(kw) || title.includes(kw) || text === kw || cls.includes(kw)) {
-                return true;
-              }
-            }
-          }
-          const icons = root.querySelectorAll('mat-icon, .google-symbols, i, svg, [class*="codicon"]');
-          for (let j = 0; j < icons.length; j++) {
-            const el = icons[j];
-            const t = (el.innerText || '').toLowerCase().trim();
-            const cls = (el.className || '').toString().toLowerCase();
-            if (t === 'stop' || t === 'pause' || t === 'stop_circle' || t === 'cancel' ||
-                cls.includes('stop') || cls.includes('pause') || cls.includes('codicon-debug-stop') || cls.includes('codicon-stop')) {
-              return true;
-            }
-          }
-          if (root.querySelector(
-            '[aria-busy="true"], mat-progress-bar, mat-spinner, .mat-mdc-progress-bar, ' +
-            'mwc-circular-progress, [data-is-generating="true"], [data-status="generating"], ' +
-            '.loading, .spinner, .typing, .streaming, .cursor, .blinking-cursor, ' +
-            '[class*="generating"], [class*="streaming"], [class*="thinking"], [class*="in-progress"]'
-          )) {
-            return true;
-          }
-          return false;
-        }
-
-        function isAIGenerating() {
-          let gen = checkTree(document);
-          if (!gen) {
-            const all = document.querySelectorAll('*');
-            for (let i = 0; i < all.length; i++) {
-              if (all[i].shadowRoot && checkTree(all[i].shadowRoot)) {
-                gen = true;
-                break;
-              }
-            }
-          }
-          return gen;
-        }
-
-        function extractPreview() {
+    try {
+      await controller.evaluateJavascript(source: _aiObserverScript);
+      await controller.evaluateJavascript(source: '''
+        (function() {
           try {
-            const candidates = document.querySelectorAll(
-              '.model-response, [data-role="model"], ' +
-              '.response-text, .message-content, ' +
-              '[class*="response"]:last-child, [class*="message"]:last-child, ' +
-              '[class*="agent"]:last-child, [class*="assistant"]:last-child, ' +
-              'pre, code, p'
-            );
-            if (candidates.length > 0) {
-              for (let i = candidates.length - 1; i >= 0; i--) {
-                const t = (candidates[i].innerText || '').trim();
-                if (t.length > 5) {
-                  return t.substring(0, 150);
-                }
-              }
+            for (let i = 0; i < window.frames.length; i++) {
+              try {
+                window.frames[i].postMessage({type: 'AG_CHECK_STATUS'}, '*');
+              } catch(e) {}
             }
-            const full = getAllText().trim();
-            return full.length > 150 ? full.substring(full.length - 150) : full;
-          } catch(e) {
-            return 'Đã hoàn thành phản hồi!';
-          }
-        }
-
-        function triggerUserSent() {
-          isWorking = true;
-          notified = false;
-          window.__agUserRecentlySent = true;
-          lastTextLength = getAllText().length;
-          lastActivityTime = Date.now();
-          console.log('[AG Remote] User sent prompt. Tracking AI output...');
-          if (window.flutter_inappwebview) {
-            window.flutter_inappwebview.callHandler('onUserPromptSent');
-          }
-        }
-
-        window.__agTriggerUserSent = triggerUserSent;
-
-        // 1. Bắt sự kiện khi user gõ Enter
-        document.addEventListener('keydown', function(e) {
-          if ((e.key === 'Enter' || e.keyCode === 13 || e.which === 13) && !e.shiftKey) {
-            triggerUserSent();
-          }
-        }, true);
-
-        // 2. Bắt sự kiện bàn phím ảo (Gboard / Samsung Keyboard insertLineBreak)
-        document.addEventListener('beforeinput', function(e) {
-          if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') {
-            triggerUserSent();
-          }
-        }, true);
-
-        // 3. Bắt sự kiện ô nhập bị xóa rỗng sau khi có text (User vừa submit)
-        document.addEventListener('input', function(e) {
-          const target = e.target;
-          if (target && (target.tagName === 'TEXTAREA' || target.isContentEditable || target.tagName === 'INPUT')) {
-            const val = (target.value || target.innerText || '').trim();
-            const curLen = val.length;
-            if (lastInputValLength >= 2 && curLen === 0) {
-              triggerUserSent();
-            }
-            lastInputValLength = curLen;
-          }
-        }, true);
-
-        // 4. Bắt sự kiện form submit
-        document.addEventListener('submit', function() {
-          triggerUserSent();
-        }, true);
-
-        // 5. Bắt sự kiện click bất kỳ nút nào liên quan tới gửi câu lệnh
-        document.addEventListener('click', function(e) {
-          const btn = e.target.closest('button, [role="button"], a, mat-icon, svg, [class*="send"], [class*="submit"], [class*="action"]');
-          if (btn) {
-            const label = (btn.getAttribute('aria-label') || '').toLowerCase();
-            const title = (btn.getAttribute('title') || '').toLowerCase();
-            const text = (btn.innerText || '').toLowerCase();
-            const cls = (btn.className || '').toString().toLowerCase();
-            if (label.includes('send') || label.includes('gửi') || label.includes('submit') || label.includes('run') ||
-                label.includes('generate') || label.includes('execute') || label.includes('prompt') ||
-                title.includes('send') || title.includes('gửi') || title.includes('run') || title.includes('execute') ||
-                text.includes('send') || text.includes('gửi') || text.includes('chạy') ||
-                cls.includes('send') || cls.includes('submit') || cls.includes('run') || cls.includes('codicon-send') ||
-                btn.type === 'submit') {
-              triggerUserSent();
-            }
-          }
-        }, true);
-
-        function checkStatus() {
-          const generating = isAIGenerating();
-          const currentLen = getAllText().length;
-
-          if (lastTextLength === 0 && currentLen > 0) {
-            lastTextLength = currentLen;
-          }
-
-          if (generating) {
-            isWorking = true;
-            notified = false;
-            lastActivityTime = Date.now();
-          } else if (currentLen > lastTextLength + 8) {
-            // Text đang stream / tăng độ dài
-            isWorking = true;
-            notified = false;
-            lastActivityTime = Date.now();
-            lastTextLength = currentLen;
-          }
-
-          // Khi AI đã dừng sinh VÀ text không đổi trong 1.5s
-          if (isWorking && !generating && !notified) {
-            const idleTime = Date.now() - lastActivityTime;
-            if (idleTime >= 1500) {
-              isWorking = false;
-              notified = true;
-              lastTextLength = currentLen;
-              const preview = extractPreview();
-              console.log('[AG Remote] AI completed! Firing onAIResponseDone');
-              if (window.flutter_inappwebview) {
-                window.flutter_inappwebview.callHandler('onAIResponseDone', preview);
-              }
-            }
-          }
-        }
-
-        // MutationObserver theo dõi toàn bộ DOM thay đổi
-        const observer = new MutationObserver(function() {
-          checkStatus();
-        });
-
-        observer.observe(document.body, {
-          childList: true,
-          subtree: true,
-          characterData: true,
-          attributes: true,
-        });
-
-        // Polling fallback dự phòng khi ở nền
-        setInterval(checkStatus, 800);
-
-        console.log('[AG Remote] Enhanced AI Response Observer active');
-      })();
-    ''');
-    debugPrint('[RemoteScreen] Enhanced AI Observer injected');
+          } catch(e) {}
+        })();
+      ''');
+      debugPrint('[RemoteScreen] Enhanced AI Observer injected and broadcasted');
+    } catch (e) {
+      debugPrint('[RemoteScreen] Error injecting AI Observer: $e');
+    }
   }
 
   /// Toggle floating bubble overlay (Android only).
@@ -1765,44 +1983,5 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
         await AppLifecycleService.moveTaskToBack();
       }
     }
-  }
-
-  /// Gửi thông báo thử nghiệm (cả tức thì lẫn sau 3 giây)
-  Future<void> _testNotification() async {
-    final bool hasPermission = await _notificationService.areNotificationsEnabled();
-    if (!hasPermission) {
-      final granted = await _notificationService.requestPermission();
-      if (!granted && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: Color(0xFFE53935),
-            content: Text(
-              '⚠️ Quyền thông báo đang bị tắt! Hãy vào Cài đặt thiết bị > Ứng dụng > AG Remote Support > Bật thông báo.',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-            ),
-            duration: Duration(seconds: 4),
-          ),
-        );
-        return;
-      }
-    }
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        backgroundColor: Color(0xFF1E1E24),
-        content: Text('🔔 Đã bắn 1 thông báo tức thì và 1 thông báo sau 3 giây!'),
-        duration: Duration(seconds: 3),
-      ),
-    );
-
-    // 1. Gửi thông báo tức thì (xuất hiện banner thả xuống ngay trên màn hình)
-    await _notificationService.showAICompletedNotification(
-      sessionName: _activeTab.session.title,
-      preview: 'Thông báo tức thì: Antigravity AI đã kết nối thành công!',
-    );
-
-    // 2. Gửi thông báo sau 3 giây để người dùng kịp nhấn Home kiểm tra khi app chạy ngầm
-    _notificationService.sendTestNotification(delaySeconds: 3);
   }
 }
