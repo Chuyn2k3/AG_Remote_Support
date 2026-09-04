@@ -36,5 +36,30 @@ void main() {
       expect(UrlParser.getShortSessionId('328cc6cd-005f-4647-b021-17c7681f6407-v2'),
           '328cc6cd...v2');
     });
+
+    // --- SECURITY ATTACK VECTOR TESTS ---
+    test('isAntigravityUrl rejects http protocol downgrade', () {
+      expect(UrlParser.isAntigravityUrl('http://antigravity.google.com/r/abc-123'), isFalse);
+    });
+
+    test('isAntigravityUrl rejects open redirect attacks on google domain', () {
+      expect(UrlParser.isAntigravityUrl('https://evil.com?redirect=antigravity.google.com'), isFalse);
+      expect(UrlParser.isAntigravityUrl('https://evil.com/r/antigravity.google.com'), isFalse);
+    });
+
+    test('isAntigravityUrl rejects spoofed subdomains', () {
+      expect(UrlParser.isAntigravityUrl('https://antigravity.google.com.evil.com/r/abc-123'), isFalse);
+    });
+
+    test('isAntigravityUrl validates legitimate accounts.google.com only with valid antigravity continue', () {
+      expect(
+        UrlParser.isAntigravityUrl('https://accounts.google.com/AccountChooser?continue=https%3A%2F%2Fantigravity.google.com%2Fr%2F123'),
+        isTrue,
+      );
+      expect(
+        UrlParser.isAntigravityUrl('https://accounts.google.com/AccountChooser?continue=https%3A%2F%2Fevil.com'),
+        isFalse,
+      );
+    });
   });
 }

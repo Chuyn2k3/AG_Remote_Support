@@ -1,17 +1,31 @@
 class UrlParser {
-  /// Kiểm tra xem URL có phải là đường link Antigravity hợp lệ hay không
+  /// Kiểm tra xem URL có phải là đường link Antigravity hợp lệ hay không (chuẩn HTTPS + domain)
   static bool isAntigravityUrl(String url) {
-    if (url.isEmpty) return false;
-    final uri = Uri.tryParse(url);
+    if (url.trim().isEmpty) return false;
+    final uri = Uri.tryParse(url.trim());
     if (uri == null) return false;
 
-    if (uri.host == 'antigravity.google.com' && uri.path.contains('/r/')) {
+    // 1. Chỉ chấp nhận giao thức HTTPS an toàn (chống HTTP downgrade)
+    if (uri.scheme != 'https') return false;
+
+    final host = uri.host.toLowerCase();
+
+    // 2. Miền chính thức Antigravity
+    if (host == 'antigravity.google.com' && uri.path.contains('/r/')) {
       return true;
     }
 
-    if (uri.host == 'accounts.google.com' &&
-        (url.contains('antigravity.google.com') || url.contains('%2Fantigravity.google.com'))) {
-      return true;
+    // 3. Miền đăng nhập Google Accounts (Chỉ chấp nhận khi target continue trỏ về antigravity.google.com)
+    if (host == 'accounts.google.com') {
+      final continueParam = uri.queryParameters['continue'] ?? uri.queryParameters['service'] ?? '';
+      if (continueParam.isNotEmpty) {
+        final continueUri = Uri.tryParse(continueParam);
+        if (continueUri != null &&
+            continueUri.scheme == 'https' &&
+            continueUri.host.toLowerCase() == 'antigravity.google.com') {
+          return true;
+        }
+      }
     }
 
     return false;
