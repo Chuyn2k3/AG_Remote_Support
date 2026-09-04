@@ -331,21 +331,17 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
 
   // ── Other state ──────────────────────────────────────────────────────────
   bool _isWakelock = false;
-  Timer? _disconnectCheckTimer;
   StorageService? _storageService;
   final SpeechService _speechService = SpeechService();
   final NotificationService _notificationService = NotificationService();
   final NativeBubbleService _nativeBubbleService = NativeBubbleService();
   bool _bubbleActive = false;
 
-  // ── AI Response Watcher state (Dart Poller & Console Event Bus) ──────────
-  Timer? _aiResponsePollingTimer;
+  // ── AI Response Watcher state (Event-Driven via Console & UserScript) ────
   Timer? _aiStreamDebounceTimer;
   bool _aiIsWorking = false;
   bool _hasStartedStreaming = false;
   bool _aiNotified = true;
-  int _aiLastTextLength = 0;
-  DateTime? _aiLastActivityTime;
   String _aiLastPreview = '';
 
   // Custom User-Agent giả lập Chrome Mobile chuẩn để vượt qua Google OAuth 403 disallowed_useragent
@@ -366,8 +362,6 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
     _storageService = widget.storageService;
     _initStorageIfNeeded();
     _initWakelock();
-    _startDisconnectPolling();
-    _startAIResponsePolling();
     // MẶC ĐỊNH LÀ MÀN HÌNH DỌC (Không tự động/mặc định xoay ngang)
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
@@ -393,12 +387,6 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
 
   Future<void> _initStorageIfNeeded() async {
     _storageService ??= await StorageService.init();
-  }
-
-  void _startDisconnectPolling() {
-    _disconnectCheckTimer = Timer.periodic(const Duration(milliseconds: 2500), (_) {
-      _checkInstanceDisconnection();
-    });
   }
 
   Future<void> _checkInstanceDisconnection() async {
@@ -469,140 +457,11 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
     });
   }
 
-  void _startAIResponsePolling() {
-    _aiResponsePollingTimer?.cancel();
-    _aiResponsePollingTimer = Timer.periodic(const Duration(milliseconds: 1500), (_) {
-      _pollAIResponseStatus();
-    });
-  }
-
-  Future<void> _pollAIResponseStatus() async {
-    if (_webViewController == null || !mounted) return;
-
-    try {
-      final dynamic result = await _webViewController?.evaluateJavascript(source: '''
-        (function() {
-          try {
-            function checkTree(root) {
-              const stopKeywords = ['stop', 'cancel', 'dừng', 'hủy', 'abort', 'pause', 'interrupt', 'terminate', 'halt'];
-              const buttons = root.querySelectorAll('button, [role="button"], a, div[tabindex]');
-              for (let i = 0; i < buttons.length; i++) {
-                const b = buttons[i];
-                const aria = (b.getAttribute('aria-label') || '').toLowerCase();
-                const title = (b.getAttribute('title') || '').toLowerCase();
-                const text = (b.innerText || '').toLowerCase().trim();
-                const cls = (b.className || '').toString().toLowerCase();
-                for (let k = 0; k < stopKeywords.length; k++) {
-                  const kw = stopKeywords[k];
-                  if (aria.includes(kw) || title.includes(kw) || text === kw || cls.includes(kw)) {
-                    return true;
-                  }
-                }
-              }
-              const icons = root.querySelectorAll('mat-icon, .google-symbols, i, svg, [class*="codicon"]');
-              for (let j = 0; j < icons.length; j++) {
-                const el = icons[j];
-                const t = (el.innerText || '').toLowerCase().trim();
-                const cls = (el.className || '').toString().toLowerCase();
-                if (t === 'stop' || t === 'pause' || t === 'stop_circle' || t === 'cancel' ||
-                    cls.includes('stop') || cls.includes('pause') || cls.includes('codicon-debug-stop') || cls.includes('codicon-stop')) {
-                  return true;
-                }
-              }
-              if (root.querySelector(
-                '[aria-busy="true"], mat-progress-bar, mat-spinner, .mat-mdc-progress-bar, ' +
-                'mwc-circular-progress, [data-is-generating="true"], [data-status="generating"], ' +
-                '.loading, .spinner, .typing, .streaming, .cursor, .blinking-cursor, ' +
-                '[class*="generating"], [class*="streaming"], [class*="thinking"], [class*="in-progress"]'
-              )) {
-                return true;
-              }
-              return false;
-            }
-
-            let isGenerating = checkTree(document);
-            if (!isGenerating) {
-              const all = document.querySelectorAll('*');
-              for (let i = 0; i < all.length; i++) {
-                if (all[i].shadowRoot && checkTree(all[i].shadowRoot)) {
-                  isGenerating = true;
-                  break;
-                }
-              }
-            }
-
-            const bodyText = document.body ? (document.body.innerText || '') : '';
-            const textLen = bodyText.length;
-
-            let preview = '';
-            const candidates = document.querySelectorAll(
-              '.model-response, [data-role="model"], .response-text, .message-content, ' +
-              '[class*="response"], [class*="message"], [class*="agent"], [class*="assistant"], ' +
-              '.chat-message, pre, code, p'
-            );
-            if (candidates.length > 0) {
-              for (let i = candidates.length - 1; i >= 0; i--) {
-                const t = (candidates[i].innerText || '').trim();
-                if (t.length > 10) {
-                  preview = t.substring(0, 150);
-                  break;
-                }
-              }
-            }
-            if (!preview && bodyText.length > 0) {
-              const trimmed = bodyText.trim();
-              preview = trimmed.length > 150 ? trimmed.substring(trimmed.length - 150) : trimmed;
-            }
-
-            const userRecentlySent = window.__agUserRecentlySent === true;
-            if (userRecentlySent) {
-              window.__agUserRecentlySent = false;
-            }
-
-            return JSON.stringify({
-              isGenerating: isGenerating,
-              textLen: textLen,
-              preview: preview,
-              userRecentlySent: userRecentlySent
-            });
-          } catch(e) {
-            return null;
-          }
-        })()
-      ''');
-
-      if (result == null || !mounted) return;
-      Map<String, dynamic> data;
-      if (result is Map) {
-        data = Map<String, dynamic>.from(result);
-      } else {
-        final str = result.toString();
-        if (str.isEmpty || str == 'null') return;
-        data = jsonDecode(str) as Map<String, dynamic>;
-      }
-
-      final bool isGenerating = data['isGenerating'] == true;
-      final int textLen = (data['textLen'] as num?)?.toInt() ?? 0;
-      final String preview = data['preview']?.toString() ?? '';
-      final bool userRecentlySent = data['userRecentlySent'] == true;
-
-      _handleAIDetectionTick(
-        isGenerating: isGenerating,
-        textLen: textLen,
-        preview: preview,
-        userRecentlySent: userRecentlySent,
-      );
-    } catch (e) {
-      debugPrint('[RemoteScreen] _pollAIResponseStatus error: $e');
-    }
-  }
-
   void _onUserPromptSubmitted(String sessionTitle, [String? reason]) {
     debugPrint('[AI Monitor] User Prompt Submitted: $reason');
     _aiIsWorking = true;
     _hasStartedStreaming = false; // CHƯA nhận được token, tuyệt đối KHÔNG được báo hoàn thành!
     _aiNotified = false;
-    _aiLastActivityTime = DateTime.now();
     _aiStreamDebounceTimer?.cancel(); // Hủy mọi debounce timer trước đó
     _aiStreamDebounceTimer = null;
 
@@ -616,7 +475,6 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
     _aiIsWorking = true;
     _hasStartedStreaming = true; // ĐÃ bắt đầu nhận token / sinh câu trả lời!
     _aiNotified = false;
-    _aiLastActivityTime = DateTime.now();
     _resetStreamDebounceTimer(sessionTitle);
     if (mounted) setState(() {});
   }
@@ -719,68 +577,7 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
     // 7. Khi AI đang sinh, các log hoạt động sẽ reset debounce timer để không kết thúc sớm
     if (_hasStartedStreaming && !_aiNotified) {
       if (!msg.contains('ResizeObserver') && !msg.contains('TouchIcon') && !msg.contains('ConfigService') && !msg.contains('GPUAUX')) {
-        _aiLastActivityTime = DateTime.now();
         _resetStreamDebounceTimer(sessionTitle);
-      }
-    }
-  }
-
-  void _handleAIDetectionTick({
-    required bool isGenerating,
-    required int textLen,
-    required String preview,
-    required bool userRecentlySent,
-  }) {
-    final sessionTitle = _activeTab.session.title;
-
-    // 1. Khởi tạo baseline ban đầu nếu chưa có
-    if (_aiLastTextLength == 0 && textLen > 0) {
-      _aiLastTextLength = textLen;
-      debugPrint('[AI Monitor] Baseline text length initialized: $textLen');
-      return;
-    }
-
-    // 2. Người dùng vừa gửi câu lệnh
-    if (userRecentlySent) {
-      _aiLastTextLength = textLen;
-      _onUserPromptSubmitted(sessionTitle, 'User sent prompt detected by Dart poller');
-      return;
-    }
-
-    // 3. AI đang có chỉ thị sinh (Stop button, spinner, cursor)
-    if (isGenerating) {
-      _aiLastTextLength = textLen;
-      if (preview.isNotEmpty) _aiLastPreview = preview;
-      _onAITokenStreaming(sessionTitle, 'AI generating indicator detected by Dart poller');
-      return;
-    }
-
-    // 4. Nếu text dài ra > 8 ký tự -> Có nội dung mới đang stream hoặc message mới
-    if (textLen > _aiLastTextLength + 8) {
-      _aiLastTextLength = textLen;
-      if (preview.isNotEmpty) _aiLastPreview = preview;
-      _onAITokenStreaming(sessionTitle, 'Text growth (+${textLen - _aiLastTextLength} chars)');
-      return;
-    }
-
-    // 5. Nếu text giảm mạnh (> 50 ký tự), có thể trang bị reload hoặc clear chat
-    if (textLen < _aiLastTextLength - 50) {
-      _aiLastTextLength = textLen;
-      _aiIsWorking = false;
-      _hasStartedStreaming = false;
-      return;
-    }
-
-    // 6. Khi AI đã từng xử lý câu lệnh VÀ không còn sinh nữa VÀ text dừng thay đổi trong 2.0s
-    if (_hasStartedStreaming && !isGenerating && !_aiNotified) {
-      final lastTime = _aiLastActivityTime ?? DateTime.now();
-      final elapsed = DateTime.now().difference(lastTime).inMilliseconds;
-      if (elapsed >= 2000) {
-        _aiLastTextLength = textLen;
-        _onAICompleted(
-          sessionTitle,
-          _aiLastPreview.isNotEmpty ? _aiLastPreview : (preview.isNotEmpty ? preview : null),
-        );
       }
     }
   }
@@ -788,8 +585,6 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _disconnectCheckTimer?.cancel();
-    _aiResponsePollingTimer?.cancel();
     _aiStreamDebounceTimer?.cancel();
     _speechService.cancelListening();
     _nativeBubbleService.stopForegroundWatcher();
@@ -1569,6 +1364,7 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
         setState(() {
           tab.errorMessage = 'Không thể tải trang: ${error.description}';
         });
+        _checkInstanceDisconnection();
       },
       onReceivedHttpError: (controller, request, errorResponse) {
         debugPrint('WebView HTTP Error: ${errorResponse.statusCode}');
