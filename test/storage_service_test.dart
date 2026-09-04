@@ -95,7 +95,7 @@ void main() {
 
   test('StorageService backward compatibility with legacy plaintext sessions', () async {
     // Giả lập dữ liệu cũ lưu dạng JSON trần chưa mã hóa
-    final legacyJson = '''{"id":"legacy-1","rawUrl":"https://antigravity.google.com/r/legacy-1","title":"Legacy Session","createdAt":"2026-09-01T10:00:00.000Z","lastAccessedAt":"2026-09-01T10:00:00.000Z"}''';
+    const legacyJson = '''{"id":"legacy-1","rawUrl":"https://antigravity.google.com/r/legacy-1","title":"Legacy Session","createdAt":"2026-09-01T10:00:00.000Z","lastAccessedAt":"2026-09-01T10:00:00.000Z"}''';
     await prefs.setStringList('antigravity_remote_sessions', [legacyJson]);
 
     final sessions = storageService.getSessions();

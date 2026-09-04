@@ -68,4 +68,17 @@ class AppLifecycleService {
       debugPrint('[AppLifecycleService] requestOpenAppFromOverlay error: $e');
     }
   }
+
+  static const MethodChannel _securityChannel = MethodChannel('dev.antigravity.remote/security');
+
+  /// Bật/tắt cờ FLAG_SECURE trên Android (chống chụp màn hình và che Task Switcher snapshot)
+  static Future<bool> setSecureFlag(bool enabled) async {
+    try {
+      final res = await _securityChannel.invokeMethod<bool>('setSecureFlag', {'enabled': enabled});
+      return res ?? false;
+    } catch (e) {
+      debugPrint('[AppLifecycleService] setSecureFlag error: $e');
+      return false;
+    }
+  }
 }

@@ -13,6 +13,7 @@ class MainActivity : FlutterFragmentActivity() {
     companion object {
         const val LIFECYCLE_CHANNEL = "dev.antigravity.remote/app_lifecycle"
         const val BUBBLE_CHANNEL = "dev.antigravity.remote/floating_bubble"
+        const val SECURITY_CHANNEL = "dev.antigravity.remote/security"
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -33,6 +34,23 @@ class MainActivity : FlutterFragmentActivity() {
                                     Intent.FLAG_ACTIVITY_NEW_TASK
                         }
                         startActivity(intent)
+                        result.success(true)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+
+        // 2. Security Channel (FLAG_SECURE Anti-Screen Capture / Recent Apps Privacy)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SECURITY_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "setSecureFlag" -> {
+                        val enabled = call.argument<Boolean>("enabled") ?: true
+                        if (enabled) {
+                            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+                        } else {
+                            window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+                        }
                         result.success(true)
                     }
                     else -> result.notImplemented()

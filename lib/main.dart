@@ -65,6 +65,9 @@ class _AntigravityAppState extends State<AntigravityApp> with WidgetsBindingObse
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _isLocked = widget.storageService.isBiometricEnabled();
+    if (_isLocked) {
+      AppLifecycleService.setSecureFlag(true);
+    }
   }
 
   @override
@@ -83,6 +86,8 @@ class _AntigravityAppState extends State<AntigravityApp> with WidgetsBindingObse
     // hoặc vừa đóng hộp thoại vân tay xong.
     if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
       _pausedAt = DateTime.now();
+      // Bật cờ bảo mật chống chụp lén màn hình khi app chuyển vào nền / task switcher
+      AppLifecycleService.setSecureFlag(true);
     } else if (state == AppLifecycleState.resumed) {
       if (widget.storageService.isBiometricEnabled() && !_isLocked) {
         // Tránh khóa lại nếu vừa mới unlock trong vòng 5 giây
@@ -95,8 +100,15 @@ class _AntigravityAppState extends State<AntigravityApp> with WidgetsBindingObse
             setState(() {
               _isLocked = true;
             });
+            AppLifecycleService.setSecureFlag(true);
+          } else {
+            AppLifecycleService.setSecureFlag(false);
           }
+        } else {
+          AppLifecycleService.setSecureFlag(false);
         }
+      } else if (!_isLocked) {
+        AppLifecycleService.setSecureFlag(false);
       }
       _pausedAt = null;
     }
@@ -133,6 +145,7 @@ class _AntigravityAppState extends State<AntigravityApp> with WidgetsBindingObse
                             _isLocked = false;
                             _lastUnlockedAt = DateTime.now();
                           });
+                          AppLifecycleService.setSecureFlag(false);
                         },
                       ),
                     ),
