@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/apple_card.dart';
 
 class QrHeroCard extends StatelessWidget {
   final VoidCallback onOpenScanner;
@@ -13,30 +14,15 @@ class QrHeroCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [
-            Color(0xFF1B1926),
-            Color(0xFF14151A),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: AppColors.brandPrimary.withOpacity(0.3),
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.brandPrimary.withOpacity(0.08),
-            blurRadius: 20,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryColor = isDark ? AppColors.darkPrimary : AppColors.lightPrimary;
+    final iconBgColor = isDark ? AppColors.darkPrimaryLight : AppColors.lightPrimaryLight;
+    final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final secondaryBtnBg = isDark ? AppColors.darkSurfaceSecondary : AppColors.lightSurfaceSecondary;
+
+    return AppleCard(
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -46,36 +32,31 @@ class QrHeroCard extends StatelessWidget {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: AppColors.brandPrimary,
+                  color: iconBgColor,
                   borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.brandPrimary.withOpacity(0.4),
-                      blurRadius: 10,
-                    ),
-                  ],
                 ),
-                child: const Icon(Icons.qr_code_scanner, color: Colors.white, size: 24),
+                child: Icon(Icons.qr_code_scanner_rounded, color: primaryColor, size: 24),
               ),
               const SizedBox(width: 14),
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Quét mã QR IDE',
+                      'Quét mã QR Desktop',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
-                        color: AppColors.textPrimary,
+                        color: textPrimary,
+                        letterSpacing: -0.3,
                       ),
                     ),
-                    SizedBox(height: 2),
+                    const SizedBox(height: 2),
                     Text(
-                      'Kết nối tức thì từ Antigravity Desktop',
+                      'Kết nối tức thì tới Antigravity 2.0',
                       style: TextStyle(
                         fontSize: 12,
-                        color: AppColors.textSecondary,
+                        color: textSecondary,
                       ),
                     ),
                   ],
@@ -89,11 +70,11 @@ class QrHeroCard extends StatelessWidget {
               Expanded(
                 child: ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.brandPrimary,
+                    backgroundColor: primaryColor,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius: BorderRadius.circular(11),
                     ),
                   ),
                   icon: const Icon(Icons.camera_alt_outlined, size: 18),
@@ -104,16 +85,18 @@ class QrHeroCard extends StatelessWidget {
               const SizedBox(width: 10),
               OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.textPrimary,
-                  side: const BorderSide(color: AppColors.borderHighlight),
-                  backgroundColor: AppColors.surfaceDark,
+                  foregroundColor: textPrimary,
+                  side: BorderSide(
+                    color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                  ),
+                  backgroundColor: secondaryBtnBg,
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(11),
                   ),
                 ),
-                icon: const Icon(Icons.content_paste, size: 18),
-                label: const Text('Dán link'),
+                icon: Icon(Icons.link, size: 18, color: textSecondary),
+                label: const Text('Dán link', style: TextStyle(fontWeight: FontWeight.w500)),
                 onPressed: onPasteLink,
               ),
             ],

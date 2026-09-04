@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../theme/app_colors.dart';
+import 'apple_card.dart';
 
 class VhtCard extends StatelessWidget {
   final Widget child;
@@ -17,29 +17,11 @@ class VhtCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cardWidget = Container(
-      padding: padding ?? const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceDark,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.fromBorderSide(
-          border ?? const BorderSide(color: AppColors.borderSubtle, width: 1),
-        ),
-      ),
+    return AppleCard(
+      padding: padding,
+      onTap: onTap,
+      border: border,
       child: child,
     );
-
-    if (onTap != null) {
-      return Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: onTap,
-          child: cardWidget,
-        ),
-      );
-    }
-
-    return cardWidget;
   }
 }
