@@ -35,7 +35,7 @@ class AntigravityApp extends StatelessWidget {
       valueListenable: appThemeNotifier,
       builder: (context, themeMode, _) {
         return MaterialApp(
-          title: 'Antigravity Remote',
+          title: 'AG Remote Support',
           debugShowCheckedModeBanner: false,
           theme: AppTheme.lightTheme,
           darkTheme: AppTheme.darkTheme,

@@ -159,6 +159,217 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _showConfirmClearAllDialog() async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+
+    final shouldClear = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          'Xóa tất cả thiết bị?',
+          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: textPrimary),
+        ),
+        content: Text(
+          'Toàn bộ danh sách thiết bị và phiên làm việc đã lưu sẽ bị xóa khỏi điện thoại. Thao tác này không thể hoàn tác.',
+          style: TextStyle(fontSize: 14, color: textSecondary, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Hủy', style: TextStyle(color: textSecondary)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Xóa tất cả',
+              style: TextStyle(color: AppColors.statusWarning, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldClear == true) {
+      await widget.storageService.clearAll();
+      _loadSessions();
+    }
+  }
+
+  void _showGuideBottomSheet() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryColor = isDark ? AppColors.darkPrimary : AppColors.lightPrimary;
+    final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final surfaceColor = isDark ? AppColors.darkSurface : AppColors.lightSurface;
+    final badgeBg = isDark ? AppColors.darkPrimaryLight : AppColors.lightPrimaryLight;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: surfaceColor,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: textSecondary.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Hướng Dẫn Sử Dụng AG Remote',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: textPrimary,
+                  letterSpacing: -0.3,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '4 bước đơn giản để kết nối và điều khiển máy tính từ xa',
+                style: TextStyle(fontSize: 13, color: textSecondary),
+              ),
+              const SizedBox(height: 20),
+
+              _buildGuideStep(
+                step: '1',
+                title: 'Mở Antigravity 2.0 trên máy tính',
+                description: 'Khởi động phần mềm Antigravity 2.0 trên máy tính của bạn (macOS, Windows hoặc Linux).',
+                primaryColor: primaryColor,
+                badgeBg: badgeBg,
+                textPrimary: textPrimary,
+                textSecondary: textSecondary,
+              ),
+              const SizedBox(height: 14),
+
+              _buildGuideStep(
+                step: '2',
+                title: 'Bật tính năng Remote Control',
+                description: 'Trên Antigravity 2.0 máy tính, vào mục Application (hoặc thanh công cụ) và bật Remote Control.',
+                primaryColor: primaryColor,
+                badgeBg: badgeBg,
+                textPrimary: textPrimary,
+                textSecondary: textSecondary,
+              ),
+              const SizedBox(height: 14),
+
+              _buildGuideStep(
+                step: '3',
+                title: 'Quét mã QR bằng Camera',
+                description: 'Mã QR kết nối sẽ hiển thị trên màn hình Desktop. Bấm nút "Mở Camera" trên app này để quét mã.',
+                primaryColor: primaryColor,
+                badgeBg: badgeBg,
+                textPrimary: textPrimary,
+                textSecondary: textSecondary,
+              ),
+              const SizedBox(height: 14),
+
+              _buildGuideStep(
+                step: '4',
+                title: 'Bắt đầu làm việc & Giữ kết nối',
+                description: 'App sẽ tự động mở phiên remote. Hãy giữ Antigravity 2.0 luôn mở trên máy tính để duy trì kết nối.',
+                primaryColor: primaryColor,
+                badgeBg: badgeBg,
+                textPrimary: textPrimary,
+                textSecondary: textSecondary,
+              ),
+              const SizedBox(height: 24),
+
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primaryColor,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 13),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Đã hiểu', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGuideStep({
+    required String step,
+    required String title,
+    required String description,
+    required Color primaryColor,
+    required Color badgeBg,
+    required Color textPrimary,
+    required Color textSecondary,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 28,
+          height: 28,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: badgeBg,
+            shape: BoxShape.circle,
+          ),
+          child: Text(
+            step,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: primaryColor,
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: textPrimary,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                description,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: textSecondary,
+                  height: 1.35,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   Future<void> _setThemeMode(ThemeMode mode) async {
     if (widget.themeNotifier != null) {
       widget.themeNotifier!.value = mode;
@@ -174,11 +385,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
     IconData themeIcon;
     if (currentMode == ThemeMode.light) {
-      themeIcon = Icons.light_mode;
+      themeIcon = Icons.light_mode_rounded;
     } else if (currentMode == ThemeMode.dark) {
-      themeIcon = Icons.dark_mode;
+      themeIcon = Icons.dark_mode_rounded;
     } else {
-      themeIcon = isDark ? Icons.brightness_auto : Icons.brightness_auto_outlined;
+      themeIcon = isDark ? Icons.brightness_auto_rounded : Icons.brightness_auto_outlined;
     }
 
     return PopupMenuButton<ThemeMode>(
@@ -242,6 +453,25 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildHelpButton(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+
+    return InkWell(
+      onTap: _showGuideBottomSheet,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: isDark ? AppColors.darkSurfaceSecondary : AppColors.lightSurfaceSecondary,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(Icons.help_outline_rounded, size: 18, color: textSecondary),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -254,16 +484,16 @@ class _HomeScreenState extends State<HomeScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Antigravity',
+              'AG Remote Support',
               style: TextStyle(
-                fontSize: 20,
+                fontSize: 19,
                 fontWeight: FontWeight.w700,
                 color: textPrimary,
                 letterSpacing: -0.4,
               ),
             ),
             Text(
-              'Remote Manager',
+              'Desktop Companion',
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w500,
@@ -273,6 +503,8 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         actions: [
+          _buildHelpButton(context),
+          const SizedBox(width: 8),
           _buildThemeMenu(context),
           const SizedBox(width: 12),
         ],
@@ -305,10 +537,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   if (_sessions.isNotEmpty)
                     TextButton(
-                      onPressed: () async {
-                        await widget.storageService.clearAll();
-                        _loadSessions();
-                      },
+                      onPressed: _showConfirmClearAllDialog,
                       child: Text(
                         'Xóa tất cả',
                         style: TextStyle(fontSize: 11, color: textSecondary),
