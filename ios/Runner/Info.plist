@@ -49,5 +49,9 @@
 	<string>Ứng dụng cần quyền truy cập Camera để quét mã QR kết nối Antigravity Remote.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Bảo vệ quyền truy cập và các phiên làm việc Antigravity bằng Face ID</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Ứng dụng cần sử dụng Microphone để thu âm giọng nói ra lệnh cho Antigravity.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Ứng dụng cần quyền nhận diện giọng nói để chuyển đổi câu nói thành văn bản prompt.</string>
 </dict>
 </plist>
