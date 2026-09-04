@@ -11,6 +11,7 @@ class FloatingCapsule extends StatefulWidget {
   final VoidCallback onCopyUrl;
   final VoidCallback onAccount;
   final VoidCallback? onVoicePrompt;
+  final VoidCallback? onGitActions;
 
   const FloatingCapsule({
     super.key,
@@ -21,6 +22,7 @@ class FloatingCapsule extends StatefulWidget {
     required this.onCopyUrl,
     required this.onAccount,
     this.onVoicePrompt,
+    this.onGitActions,
   });
 
   @override
@@ -36,7 +38,7 @@ class _FloatingCapsuleState extends State<FloatingCapsule> {
     final screenSize = MediaQuery.of(context).size;
 
     return Positioned(
-      left: _offset.dx.clamp(10.0, screenSize.width - (_isMini ? 55.0 : 380.0)),
+      left: _offset.dx.clamp(10.0, screenSize.width - (_isMini ? 55.0 : 410.0)),
       top: _offset.dy.clamp(44.0, screenSize.height - 110.0),
       child: GestureDetector(
         onPanUpdate: (details) {
@@ -124,6 +126,19 @@ class _FloatingCapsuleState extends State<FloatingCapsule> {
             onTap: () {
               HapticFeedback.lightImpact();
               widget.onVoicePrompt?.call();
+            },
+          ),
+          _buildDivider(),
+        ],
+        // Git Quick Actions
+        if (widget.onGitActions != null) ...[
+          _buildActionButton(
+            icon: Icons.difference_rounded,
+            label: 'Git',
+            color: const Color(0xFF30D158),
+            onTap: () {
+              HapticFeedback.lightImpact();
+              widget.onGitActions?.call();
             },
           ),
           _buildDivider(),

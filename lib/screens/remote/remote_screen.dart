@@ -13,6 +13,7 @@ import '../../models/remote_session.dart';
 import '../../core/services/speech_service.dart';
 import 'widgets/floating_capsule.dart';
 import 'widgets/voice_prompt_modal.dart';
+import 'widgets/git_actions_modal.dart';
 
 class RemoteScreen extends StatefulWidget {
   final RemoteSession session;
@@ -658,10 +659,24 @@ class _RemoteScreenState extends State<RemoteScreen> {
                 onCopyUrl: _copyUrl,
                 onExit: () => Navigator.pop(context),
                 onVoicePrompt: _openVoicePromptModal,
+                onGitActions: _openGitActionsModal,
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  void _openGitActionsModal() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => GitActionsModal(
+        onSendPrompt: (text, autoSubmit) {
+          _injectPromptIntoWebView(text, autoSubmit: autoSubmit);
+        },
       ),
     );
   }
