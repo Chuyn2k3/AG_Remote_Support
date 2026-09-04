@@ -19,10 +19,12 @@ class HeartbeatService {
 
   static String getTargetUrl(RemoteSession session) {
     final sessionId = UrlParser.extractSessionId(session.rawUrl) ?? session.id;
-    if (sessionId.endsWith('-v2')) {
-      return 'https://antigravity.google.com/r/$sessionId';
+    final cleanId = sessionId.endsWith('-v2') ? sessionId : '$sessionId-v2';
+    final email = session.email ?? UrlParser.extractEmail(session.rawUrl);
+    if (email != null && email.trim().isNotEmpty) {
+      return 'https://antigravity.google.com/r/$cleanId?authuser=${Uri.encodeComponent(email.trim())}';
     }
-    return 'https://antigravity.google.com/r/$sessionId-v2';
+    return 'https://antigravity.google.com/r/$cleanId';
   }
 
   /// Đánh giá trạng thái nhanh (fallback) dựa trên cờ ngắt kết nối và thời gian truy cập gần nhất.
@@ -88,7 +90,13 @@ class HeartbeatService {
                         document.querySelector('.disconnect-card, .no-instance-card, [data-status="disconnected"]') !== null) {
                       return 'disconnected';
                     }
-                    if (location.host.includes('accounts.google.com') || text.includes('sign in') || text.includes('đăng nhập')) {
+                    if (location.host.includes('accounts.google.com') ||
+                        text.includes('sign in') ||
+                        text.includes('đăng nhập') ||
+                        text.includes('switch account') ||
+                        text.includes('chuyển tài khoản') ||
+                        text.includes('you need permission') ||
+                        text.includes('không có quyền truy cập')) {
                       return 'auth_required';
                     }
                     if (text.length > 30 && document.querySelector('button, mwc-button, textarea, input, [role="main"]') !== null) {

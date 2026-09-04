@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/services/heartbeat_service.dart';
+import '../../core/utils/url_parser.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/services/wakelock_service.dart';
 import '../../models/remote_session.dart';
@@ -266,8 +267,11 @@ class _RemoteScreenState extends State<RemoteScreen> {
                       style: TextStyle(fontSize: 12, color: textSecondary)),
                   onTap: () {
                     Navigator.pop(ctx);
+                    final email = widget.session.email ?? UrlParser.extractEmail(widget.session.rawUrl);
+                    final emailParam = (email != null && email.isNotEmpty) ? '&Email=${Uri.encodeComponent(email)}' : '';
+                    final targetUrl = HeartbeatService.getTargetUrl(widget.session);
                     final chooserUrl =
-                        'https://accounts.google.com/AccountChooser?continue=${Uri.encodeComponent(widget.session.rawUrl)}';
+                        'https://accounts.google.com/AccountChooser?continue=${Uri.encodeComponent(targetUrl)}$emailParam';
                     _webViewController?.loadUrl(urlRequest: URLRequest(url: WebUri(chooserUrl)));
                   },
                 ),

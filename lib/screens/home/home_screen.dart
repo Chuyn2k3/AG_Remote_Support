@@ -43,8 +43,20 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _loadSessions() {
+    final loaded = widget.storageService.getSessions();
+    bool hasUpdates = false;
+    for (final s in loaded) {
+      if (s.email == null || s.email!.isEmpty) {
+        final extracted = UrlParser.extractEmail(s.rawUrl);
+        if (extracted != null && extracted.isNotEmpty) {
+          s.email = extracted;
+          widget.storageService.upsertSession(s);
+          hasUpdates = true;
+        }
+      }
+    }
     setState(() {
-      _sessions = widget.storageService.getSessions();
+      _sessions = hasUpdates ? widget.storageService.getSessions() : loaded;
     });
   }
 

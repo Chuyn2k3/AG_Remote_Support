@@ -26,6 +26,10 @@ void main() {
     test('extractEmail extracts correct email', () {
       expect(UrlParser.extractEmail(validGoogleUrl), 'phamdoan060801@gmail.com');
       expect(UrlParser.extractEmail(validDirectUrl), isNull);
+      expect(
+        UrlParser.extractEmail('https://antigravity.google.com/r/abc-v2?authuser=work%40company.com'),
+        'work@company.com',
+      );
     });
 
     test('getShortSessionId truncates properly', () {

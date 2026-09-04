@@ -30,19 +30,26 @@ class UrlParser {
     return null;
   }
 
-  /// Bóc tách email tài khoản Google từ tham số Email=... nếu có
+  /// Bóc tách email tài khoản Google từ tham số Email=... hoặc authuser=... nếu có
   static String? extractEmail(String url) {
     if (url.isEmpty) return null;
     final uri = Uri.tryParse(url);
-    if (uri != null && uri.queryParameters.containsKey('Email')) {
-      return uri.queryParameters['Email'];
+    if (uri != null) {
+      if (uri.queryParameters.containsKey('Email')) {
+        return uri.queryParameters['Email'];
+      }
+      if (uri.queryParameters.containsKey('authuser') &&
+          uri.queryParameters['authuser']!.contains('@')) {
+        return uri.queryParameters['authuser'];
+      }
     }
 
     // Dự phòng tìm kiếm bằng Regex nếu URI chứa nhiều tầng encoding
-    final regExp = RegExp(r'Email=([^&]+)');
+    final regExp = RegExp(r'(?:Email|authuser)=([^&]+)');
     final match = regExp.firstMatch(url);
     if (match != null && match.groupCount >= 1) {
-      return Uri.decodeComponent(match.group(1)!);
+      final val = Uri.decodeComponent(match.group(1)!);
+      if (val.contains('@')) return val;
     }
     return null;
   }

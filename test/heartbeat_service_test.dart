@@ -68,12 +68,27 @@ void main() {
     expect(DeviceStatus.values, contains(DeviceStatus.authRequired));
   });
 
-  test('HeartbeatService getTargetUrl converts AccountChooser URL to direct Antigravity URL', () {
+  test('HeartbeatService getTargetUrl converts AccountChooser URL to direct Antigravity URL with authuser', () {
     final session = RemoteSession(
       id: 'mock-account-chooser',
       rawUrl:
           'https://accounts.google.com/AccountChooser?Email=test%40gmail.com&continue=https%3A%2F%2Fantigravity.google.com%2Fr%2Fmy-session-uuid-v2',
       title: 'Chooser Session',
+      createdAt: DateTime.now(),
+      lastAccessedAt: DateTime.now(),
+    );
+
+    expect(
+      HeartbeatService.getTargetUrl(session),
+      'https://antigravity.google.com/r/my-session-uuid-v2?authuser=test%40gmail.com',
+    );
+  });
+
+  test('HeartbeatService getTargetUrl handles session without email', () {
+    final session = RemoteSession(
+      id: 'mock-no-email',
+      rawUrl: 'https://antigravity.google.com/r/my-session-uuid-v2',
+      title: 'Direct Session',
       createdAt: DateTime.now(),
       lastAccessedAt: DateTime.now(),
     );
