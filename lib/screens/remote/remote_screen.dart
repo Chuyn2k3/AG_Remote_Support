@@ -285,8 +285,8 @@ class _TabState {
   final RemoteSession session;
   final GlobalKey webViewKey = GlobalKey();
   InAppWebViewController? controller;
-  double progress = 0.0;
-  bool isLoading = true;
+  final ValueNotifier<double> progressNotifier = ValueNotifier<double>(0.0);
+  final ValueNotifier<bool> loadingNotifier = ValueNotifier<bool>(true);
   String? errorMessage;
   bool isDisconnected;
 
@@ -294,6 +294,17 @@ class _TabState {
     required this.session,
     this.isDisconnected = false,
   });
+
+  double get progress => progressNotifier.value;
+  set progress(double v) => progressNotifier.value = v;
+
+  bool get isLoading => loadingNotifier.value;
+  set isLoading(bool v) => loadingNotifier.value = v;
+
+  void dispose() {
+    progressNotifier.dispose();
+    loadingNotifier.dispose();
+  }
 }
 
 class RemoteScreen extends StatefulWidget {
@@ -320,10 +331,6 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
   // Convenience getters trỏ vào tab đang active
   _TabState get _activeTab => _tabs[_activeTabIndex];
   InAppWebViewController? get _webViewController => _activeTab.controller;
-  double get _progress => _activeTab.progress;
-  set _progress(double v) => _activeTab.progress = v;
-  bool get _isLoading => _activeTab.isLoading;
-  set _isLoading(bool v) => _activeTab.isLoading = v;
   String? get _errorMessage => _activeTab.errorMessage;
   set _errorMessage(String? v) => _activeTab.errorMessage = v;
   bool get _isInstanceDisconnected => _activeTab.isDisconnected;
@@ -585,6 +592,9 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    for (final tab in _tabs) {
+      tab.dispose();
+    }
     _aiStreamDebounceTimer?.cancel();
     _speechService.cancelListening();
     _nativeBubbleService.stopForegroundWatcher();
@@ -676,10 +686,10 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
   }
 
   void _retry() {
+    _activeTab.loadingNotifier.value = true;
+    _activeTab.progressNotifier.value = 0.0;
     setState(() {
       _errorMessage = null;
-      _isLoading = true;
-      _progress = 0;
       _isInstanceDisconnected = false;
     });
     _activeTab.session.isDisconnected = false;
@@ -971,62 +981,78 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
                       ),
               ),
 
-              // Thin 2px Linear Progress Indicator at top (Apple Blue)
-              if (_progress < 1.0)
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  child: LinearProgressIndicator(
-                    value: _progress,
-                    backgroundColor: Colors.transparent,
-                    valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
-                    minHeight: 2.0,
-                  ),
+              // Thin 2px Linear Progress Indicator at top (Apple Blue) - Scoped with ValueListenableBuilder
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: ValueListenableBuilder<double>(
+                  valueListenable: _activeTab.progressNotifier,
+                  builder: (context, progress, _) {
+                    if (progress >= 1.0) return const SizedBox.shrink();
+                    return LinearProgressIndicator(
+                      value: progress,
+                      backgroundColor: Colors.transparent,
+                      valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+                      minHeight: 2.0,
+                    );
+                  },
                 ),
+              ),
 
-              // Loading Spinner nếu trang đang khởi động lần đầu
-              if (_isLoading && _progress < 0.2)
-                Center(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
-                        decoration: BoxDecoration(
-                          color: (isDark ? AppColors.darkSurface : AppColors.lightSurface).withOpacity(0.9),
+              // Loading Spinner nếu trang đang khởi động lần đầu - Scoped with ValueListenableBuilder
+              ValueListenableBuilder<bool>(
+                valueListenable: _activeTab.loadingNotifier,
+                builder: (context, isLoading, _) {
+                  if (!isLoading) return const SizedBox.shrink();
+                  return ValueListenableBuilder<double>(
+                    valueListenable: _activeTab.progressNotifier,
+                    builder: (context, progress, _) {
+                      if (progress >= 0.2) return const SizedBox.shrink();
+                      return Center(
+                        child: ClipRRect(
                           borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                          child: BackdropFilter(
+                            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+                              decoration: BoxDecoration(
+                                color: (isDark ? AppColors.darkSurface : AppColors.lightSurface).withOpacity(0.9),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                                ),
+                              ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  SizedBox(
+                                    width: 28,
+                                    height: 28,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.5,
+                                      valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    'Đang kết nối tới Antigravity Desktop...',
+                                    style: TextStyle(
+                                      color: textSecondary,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                         ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            SizedBox(
-                              width: 28,
-                              height: 28,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2.5,
-                                valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              'Đang kết nối tới Antigravity Desktop...',
-                              style: TextStyle(
-                                color: textSecondary,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
+                      );
+                    },
+                  );
+                },
+              ),
 
               // Error banner if loading completely failed (Frosted style, no harsh red)
               if (_errorMessage != null)
@@ -1296,18 +1322,16 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
         _handleConsoleMessage(tabIndex, tab, consoleMessage.message);
       },
       onLoadStart: (controller, url) {
-        if (!mounted) return;
-        setState(() {
-          tab.isLoading = true;
-          tab.errorMessage = null;
-        });
+        tab.loadingNotifier.value = true;
+        if (tab.errorMessage != null && mounted) {
+          setState(() {
+            tab.errorMessage = null;
+          });
+        }
       },
       onLoadStop: (controller, url) {
-        if (!mounted) return;
-        setState(() {
-          tab.isLoading = false;
-          tab.progress = 1.0;
-        });
+        tab.loadingNotifier.value = false;
+        tab.progressNotifier.value = 1.0;
         Future.delayed(const Duration(milliseconds: 600), () {
           if (mounted && tabIndex == _activeTabIndex) {
             _checkInstanceDisconnection();
@@ -1352,11 +1376,11 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
         return NavigationActionPolicy.ALLOW;
       },
       onProgressChanged: (controller, progress) {
-        if (!mounted) return;
-        setState(() {
-          tab.progress = progress / 100.0;
-          if (progress >= 95) tab.isLoading = false;
-        });
+        final double val = progress / 100.0;
+        tab.progressNotifier.value = val;
+        if (progress >= 95) {
+          tab.loadingNotifier.value = false;
+        }
       },
       onReceivedError: (controller, request, error) {
         if (error.description.contains('net::ERR_ABORTED')) return;
@@ -1385,8 +1409,9 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
   /// Đóng tab tại index cho trước
   void _closeTab(int index) {
     if (_tabs.length <= 1) return;
+    final closedTab = _tabs.removeAt(index);
+    closedTab.dispose();
     setState(() {
-      _tabs.removeAt(index);
       if (_activeTabIndex >= _tabs.length) {
         _activeTabIndex = _tabs.length - 1;
       }
