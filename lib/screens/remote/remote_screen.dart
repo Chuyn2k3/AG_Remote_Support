@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:ui';
+
 import 'dart:collection';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -1012,42 +1012,44 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
                     builder: (context, progress, _) {
                       if (progress >= 0.2) return const SizedBox.shrink();
                       return Center(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(16),
-                          child: BackdropFilter(
-                            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
-                              decoration: BoxDecoration(
-                                color: (isDark ? AppColors.darkSurface : AppColors.lightSurface).withOpacity(0.9),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+                          decoration: BoxDecoration(
+                            // Dùng màu đặc thay BackdropFilter — BackdropFilter không đọc được pixel SurfaceView trên Android
+                            color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.18),
+                                blurRadius: 20,
+                                offset: const Offset(0, 6),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              SizedBox(
+                                width: 28,
+                                height: 28,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.5,
+                                  valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
                                 ),
                               ),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  SizedBox(
-                                    width: 28,
-                                    height: 28,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2.5,
-                                      valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    'Đang kết nối tới Antigravity Desktop...',
-                                    style: TextStyle(
-                                      color: textSecondary,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ],
+                              const SizedBox(height: 12),
+                              Text(
+                                'Đang kết nối tới Antigravity Desktop...',
+                                style: TextStyle(
+                                  color: textSecondary,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
                               ),
-                            ),
+                            ],
                           ),
                         ),
                       );
@@ -1056,169 +1058,164 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
                 },
               ),
 
-              // Error banner if loading completely failed (Frosted style, no harsh red)
+              // Error banner if loading completely failed (Solid — BackdropFilter breaks Android PlatformView)
               if (_errorMessage != null)
                 Center(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(18),
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-                      child: Container(
-                        margin: const EdgeInsets.all(24),
-                        padding: const EdgeInsets.all(22),
-                        decoration: BoxDecoration(
-                          color: (isDark ? AppColors.darkSurface : AppColors.lightSurface).withOpacity(0.92),
-                          borderRadius: BorderRadius.circular(18),
-                          border: Border.all(
-                            color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                  child: Container(
+                    margin: const EdgeInsets.all(24),
+                    padding: const EdgeInsets.all(22),
+                    decoration: BoxDecoration(
+                      color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.18),
+                          blurRadius: 24,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.wifi_off_rounded, size: 36, color: textSecondary),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Không thể kết nối với Desktop',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: textPrimary,
                           ),
                         ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.wifi_off_rounded, size: 36, color: textSecondary),
-                            const SizedBox(height: 12),
-                            Text(
-                              'Không thể kết nối với Desktop',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: textPrimary,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              'Hãy đảm bảo Antigravity 2.0 đang chạy trên máy tính của bạn.',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(color: textSecondary, fontSize: 13),
-                            ),
-                            const SizedBox(height: 18),
-                            ElevatedButton.icon(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: primaryColor,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              ),
-                              icon: const Icon(Icons.refresh_rounded, size: 18),
-                              label: const Text('Thử lại', style: TextStyle(fontWeight: FontWeight.w600)),
-                              onPressed: _retry,
-                            ),
-                          ],
+                        const SizedBox(height: 6),
+                        Text(
+                          'Hãy đảm bảo Antigravity 2.0 đang chạy trên máy tính của bạn.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: textSecondary, fontSize: 13),
                         ),
-                      ),
+                        const SizedBox(height: 18),
+                        ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: primaryColor,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          icon: const Icon(Icons.refresh_rounded, size: 18),
+                          label: const Text('Thử lại', style: TextStyle(fontWeight: FontWeight.w600)),
+                          onPressed: _retry,
+                        ),
+                      ],
                     ),
                   ),
                 ),
 
-              // Disconnected Banner/Overlay (Apple Frosted Glass HIG)
+              // Disconnected Banner/Overlay (Solid — BackdropFilter breaks Android PlatformView)
               if (_isInstanceDisconnected)
                 Center(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(22),
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                      child: Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 24),
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
-                        decoration: BoxDecoration(
-                          color: (isDark ? AppColors.darkSurface : AppColors.lightSurface).withOpacity(0.92),
-                          borderRadius: BorderRadius.circular(22),
-                          border: Border.all(
-                            color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(isDark ? 0.35 : 0.08),
-                              blurRadius: 30,
-                              offset: const Offset(0, 10),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 58,
-                              height: 58,
-                              decoration: BoxDecoration(
-                                color: (isDark ? AppColors.darkPrimaryLight : AppColors.lightPrimaryLight),
-                                shape: BoxShape.circle,
-                              ),
-                              child: Icon(
-                                Icons.power_off_rounded,
-                                size: 28,
-                                color: primaryColor,
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              'Máy tính đã ngắt kết nối',
-                              style: TextStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w700,
-                                color: textPrimary,
-                                letterSpacing: -0.3,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Antigravity 2.0 trên máy tính đã tắt hoặc mất kết nối mạng. Hãy mở lại Antigravity trên máy tính để tiếp tục làm việc.',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: textSecondary,
-                                fontSize: 13,
-                                height: 1.4,
-                              ),
-                            ),
-                            const SizedBox(height: 22),
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton.icon(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: primaryColor,
-                                  foregroundColor: Colors.white,
-                                  elevation: 0,
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
-                                icon: const Icon(Icons.refresh_rounded, size: 18),
-                                label: const Text(
-                                  'Thử kết nối lại',
-                                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                                ),
-                                onPressed: _retry,
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            SizedBox(
-                              width: double.infinity,
-                              child: OutlinedButton(
-                                style: OutlinedButton.styleFrom(
-                                  side: BorderSide(
-                                    color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
-                                  ),
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
-                                onPressed: () => Navigator.pop(context),
-                                child: Text(
-                                  'Quay lại Hub thiết bị',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                    color: textPrimary,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 24),
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+                    decoration: BoxDecoration(
+                      color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(
+                        color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
                       ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(isDark ? 0.35 : 0.12),
+                          blurRadius: 30,
+                          offset: const Offset(0, 10),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 58,
+                          height: 58,
+                          decoration: BoxDecoration(
+                            color: (isDark ? AppColors.darkPrimaryLight : AppColors.lightPrimaryLight),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.power_off_rounded,
+                            size: 28,
+                            color: primaryColor,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Máy tính đã ngắt kết nối',
+                          style: TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                            color: textPrimary,
+                            letterSpacing: -0.3,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Antigravity 2.0 trên máy tính đã tắt hoặc mất kết nối mạng. Hãy mở lại Antigravity trên máy tính để tiếp tục làm việc.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: textSecondary,
+                            fontSize: 13,
+                            height: 1.4,
+                          ),
+                        ),
+                        const SizedBox(height: 22),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: primaryColor,
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            icon: const Icon(Icons.refresh_rounded, size: 18),
+                            label: const Text(
+                              'Thử kết nối lại',
+                              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                            ),
+                            onPressed: _retry,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              side: BorderSide(
+                                color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            onPressed: () => Navigator.pop(context),
+                            child: Text(
+                              'Quay lại Hub thiết bị',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: textPrimary,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -1257,9 +1254,8 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
   /// Tạo InAppWebView cho một tab cụ thể với state callbacks riêng.
   Widget _buildTabWebView(int tabIndex) {
     final tab = _tabs[tabIndex];
-    return RepaintBoundary(
-      child: InAppWebView(
-        key: tab.webViewKey,
+    return InAppWebView(
+      key: tab.webViewKey,
       initialUrlRequest: URLRequest(
         url: WebUri(HeartbeatService.getTargetUrl(tab.session)),
       ),
@@ -1284,7 +1280,8 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
         supportMultipleWindows: false,
         javaScriptCanOpenWindowsAutomatically: false,
         mixedContentMode: MixedContentMode.MIXED_CONTENT_NEVER_ALLOW,
-        useHybridComposition: true,
+        useHybridComposition: true, // SurfaceView chuẩn — MIUI GuiExtAux xử lý đúng, không gây Null ANativeBuffer
+        transparentBackground: true, // Tránh nháy phông trắng
         requestedWithHeaderOriginAllowList: <String>{},
         allowFileAccessFromFileURLs: false,
         allowUniversalAccessFromFileURLs: false,
@@ -1398,9 +1395,8 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
       onReceivedHttpError: (controller, request, errorResponse) {
         debugPrint('WebView HTTP Error: ${errorResponse.statusCode}');
       },
-    ),
-  );
-}
+    );
+  }
 
   /// Switch sang tab khác (IndexedStack — WebView giữ state, không reload)
   void _switchTab(int index) {

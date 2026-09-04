@@ -65,9 +65,15 @@ class _AntigravityAppState extends State<AntigravityApp> with WidgetsBindingObse
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _isLocked = widget.storageService.isBiometricEnabled();
-    if (_isLocked) {
-      AppLifecycleService.setSecureFlag(true);
-    }
+    // Gọi sau frame đầu tiên để đảm bảo MethodChannel đã sẵn sàng
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (_isLocked) {
+        await AppLifecycleService.setSecureFlag(true);
+      } else {
+        // Luôn xóa cờ để tránh trường hợp còn sót từ lần chạy trước
+        await AppLifecycleService.setSecureFlag(false);
+      }
+    });
   }
 
   @override
@@ -86,8 +92,10 @@ class _AntigravityAppState extends State<AntigravityApp> with WidgetsBindingObse
     // hoặc vừa đóng hộp thoại vân tay xong.
     if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
       _pausedAt = DateTime.now();
-      // Bật cờ bảo mật chống chụp lén màn hình khi app chuyển vào nền / task switcher
-      AppLifecycleService.setSecureFlag(true);
+      // Chỉ bật cờ bảo mật chống chụp lén màn hình khi tính năng sinh trắc học được bật
+      if (widget.storageService.isBiometricEnabled()) {
+        AppLifecycleService.setSecureFlag(true);
+      }
     } else if (state == AppLifecycleState.resumed) {
       if (widget.storageService.isBiometricEnabled() && !_isLocked) {
         // Tránh khóa lại nếu vừa mới unlock trong vòng 5 giây
