@@ -8,6 +8,7 @@ import '../../../models/remote_session.dart';
 class SessionCard extends StatelessWidget {
   final RemoteSession session;
   final VoidCallback onConnect;
+  final VoidCallback onOpenInBrowser;
   final VoidCallback onRename;
   final VoidCallback onDelete;
   final VoidCallback onTogglePin;
@@ -16,6 +17,7 @@ class SessionCard extends StatelessWidget {
     super.key,
     required this.session,
     required this.onConnect,
+    required this.onOpenInBrowser,
     required this.onRename,
     required this.onDelete,
     required this.onTogglePin,
@@ -65,6 +67,7 @@ class SessionCard extends StatelessWidget {
                 icon: const Icon(Icons.more_vert, size: 18, color: AppColors.textMuted),
                 color: AppColors.surfaceDarkElevated,
                 onSelected: (val) {
+                  if (val == 'browser') onOpenInBrowser();
                   if (val == 'rename') onRename();
                   if (val == 'delete') onDelete();
                   if (val == 'pin') onTogglePin();
@@ -73,6 +76,16 @@ class SessionCard extends StatelessWidget {
                   PopupMenuItem(
                     value: 'pin',
                     child: Text(session.isPinned ? 'Bỏ ghim' : 'Ghim lên đầu'),
+                  ),
+                  const PopupMenuItem(
+                    value: 'browser',
+                    child: Row(
+                      children: [
+                        Icon(Icons.open_in_browser, size: 16, color: AppColors.accentCyan),
+                        SizedBox(width: 8),
+                        Text('Mở qua Chrome/Safari'),
+                      ],
+                    ),
                   ),
                   const PopupMenuItem(
                     value: 'rename',
@@ -86,7 +99,36 @@ class SessionCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 6),
+
+          // Email account tag pill if available
+          if (session.email != null) ...[
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: AppColors.brandPrimary.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: AppColors.brandPrimary.withOpacity(0.25)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.alternate_email, size: 11, color: AppColors.brandPrimaryLight),
+                  const SizedBox(width: 4),
+                  Text(
+                    session.email!,
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.brandPrimaryLight,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 8),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -94,18 +136,30 @@ class SessionCard extends StatelessWidget {
                 'ID: $shortId • ${_formatTime(session.lastAccessedAt)}',
                 style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
               ),
-              OutlinedButton(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.brandPrimary,
-                  side: const BorderSide(color: AppColors.brandPrimary, width: 1),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  minimumSize: const Size(60, 28),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(6),
+              Row(
+                children: [
+                  IconButton(
+                    tooltip: 'Mở bằng Chrome/Safari',
+                    constraints: const BoxConstraints(),
+                    padding: const EdgeInsets.all(6),
+                    icon: const Icon(Icons.open_in_browser, size: 18, color: AppColors.textSecondary),
+                    onPressed: onOpenInBrowser,
                   ),
-                ),
-                onPressed: onConnect,
-                child: const Text('Vào lại', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                  const SizedBox(width: 6),
+                  OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.brandPrimary,
+                      side: const BorderSide(color: AppColors.brandPrimary, width: 1),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      minimumSize: const Size(60, 28),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                    ),
+                    onPressed: onConnect,
+                    child: const Text('Vào lại', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                  ),
+                ],
               ),
             ],
           ),

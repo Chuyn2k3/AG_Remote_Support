@@ -30,6 +30,23 @@ class UrlParser {
     return null;
   }
 
+  /// Bóc tách email tài khoản Google từ tham số Email=... nếu có
+  static String? extractEmail(String url) {
+    if (url.isEmpty) return null;
+    final uri = Uri.tryParse(url);
+    if (uri != null && uri.queryParameters.containsKey('Email')) {
+      return uri.queryParameters['Email'];
+    }
+
+    // Dự phòng tìm kiếm bằng Regex nếu URI chứa nhiều tầng encoding
+    final regExp = RegExp(r'Email=([^&]+)');
+    final match = regExp.firstMatch(url);
+    if (match != null && match.groupCount >= 1) {
+      return Uri.decodeComponent(match.group(1)!);
+    }
+    return null;
+  }
+
   /// Rút gọn session ID để hiển thị gọn gàng trên UI (ví dụ: 328cc6cd...v2)
   static String getShortSessionId(String sessionId) {
     if (sessionId.length <= 12) return sessionId;

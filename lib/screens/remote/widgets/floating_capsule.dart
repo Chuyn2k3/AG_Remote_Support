@@ -8,6 +8,7 @@ class FloatingCapsule extends StatefulWidget {
   final VoidCallback onReload;
   final VoidCallback onExit;
   final VoidCallback onCopyUrl;
+  final VoidCallback onAccount;
 
   const FloatingCapsule({
     super.key,
@@ -16,6 +17,7 @@ class FloatingCapsule extends StatefulWidget {
     required this.onReload,
     required this.onExit,
     required this.onCopyUrl,
+    required this.onAccount,
   });
 
   @override
@@ -31,7 +33,7 @@ class _FloatingCapsuleState extends State<FloatingCapsule> {
     final screenSize = MediaQuery.of(context).size;
 
     return Positioned(
-      left: _offset.dx.clamp(10.0, screenSize.width - (_isMini ? 60.0 : 280.0)),
+      left: _offset.dx.clamp(10.0, screenSize.width - (_isMini ? 60.0 : 330.0)),
       top: _offset.dy.clamp(50.0, screenSize.height - 120.0),
       child: GestureDetector(
         onPanUpdate: (details) {
@@ -47,7 +49,7 @@ class _FloatingCapsuleState extends State<FloatingCapsule> {
               duration: const Duration(milliseconds: 250),
               curve: Curves.easeInOut,
               padding: EdgeInsets.symmetric(
-                horizontal: _isMini ? 8 : 14,
+                horizontal: _isMini ? 8 : 12,
                 vertical: _isMini ? 8 : 8,
               ),
               decoration: BoxDecoration(
@@ -101,6 +103,14 @@ class _FloatingCapsuleState extends State<FloatingCapsule> {
           onTap: widget.onToggleWakelock,
         ),
         _buildDivider(),
+        // Account / Google multi-account
+        _buildActionButton(
+          icon: Icons.account_circle_outlined,
+          label: 'Tài khoản',
+          color: AppColors.brandPrimaryLight,
+          onTap: widget.onAccount,
+        ),
+        _buildDivider(),
         // Reload Button
         _buildActionButton(
           icon: Icons.refresh,
@@ -143,7 +153,7 @@ class _FloatingCapsuleState extends State<FloatingCapsule> {
       onTap: onTap,
       borderRadius: BorderRadius.circular(8),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -168,7 +178,7 @@ class _FloatingCapsuleState extends State<FloatingCapsule> {
       height: 20,
       width: 1,
       color: AppColors.borderSubtle,
-      margin: const EdgeInsets.symmetric(horizontal: 4),
+      margin: const EdgeInsets.symmetric(horizontal: 3),
     );
   }
 }

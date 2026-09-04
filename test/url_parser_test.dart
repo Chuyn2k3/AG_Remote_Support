@@ -23,6 +23,11 @@ void main() {
       expect(UrlParser.extractSessionId(invalidUrl), isNull);
     });
 
+    test('extractEmail extracts correct email', () {
+      expect(UrlParser.extractEmail(validGoogleUrl), 'phamdoan060801@gmail.com');
+      expect(UrlParser.extractEmail(validDirectUrl), isNull);
+    });
+
     test('getShortSessionId truncates properly', () {
       expect(UrlParser.getShortSessionId('328cc6cd-005f-4647-b021-17c7681f6407-v2'),
           '328cc6cd...v2');

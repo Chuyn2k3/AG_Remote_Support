@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/url_parser.dart';
 import '../../core/services/storage_service.dart';
@@ -37,17 +38,24 @@ class _HomeScreenState extends State<HomeScreen> {
     final sessionId = UrlParser.extractSessionId(url);
     if (sessionId == null) return;
 
+    final email = UrlParser.extractEmail(url);
     final existingIndex = _sessions.indexWhere((s) => s.id == sessionId);
     RemoteSession session;
 
     if (existingIndex >= 0) {
       session = _sessions[existingIndex];
       session.lastAccessedAt = DateTime.now();
+      if (email != null) {
+        session.email = email;
+      }
     } else {
       session = RemoteSession(
         id: sessionId,
         rawUrl: url,
-        title: 'Desktop • ${UrlParser.getShortSessionId(sessionId)}',
+        email: email,
+        title: email != null
+            ? '$email • ${UrlParser.getShortSessionId(sessionId)}'
+            : 'Desktop • ${UrlParser.getShortSessionId(sessionId)}',
         createdAt: DateTime.now(),
         lastAccessedAt: DateTime.now(),
       );
@@ -244,6 +252,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           context,
                           MaterialPageRoute(builder: (_) => RemoteScreen(session: s)),
                         ).then((_) => _loadSessions());
+                      },
+                      onOpenInBrowser: () async {
+                        await InAppBrowser.openWithSystemBrowser(url: WebUri(s.rawUrl));
                       },
                       onRename: () => _showRenameDialog(s),
                       onDelete: () async {

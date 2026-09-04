@@ -88,6 +88,128 @@ class _RemoteScreenState extends State<RemoteScreen> {
     );
   }
 
+  void _showAccountModal() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.surfaceDarkElevated,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.borderSubtle,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Quản lý Tài khoản & Đăng nhập',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                if (widget.session.email != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'Tài khoản phiên này: ${widget.session.email}',
+                    style: const TextStyle(fontSize: 12, color: AppColors.brandPrimaryLight),
+                  ),
+                ],
+                const SizedBox(height: 16),
+
+                // Option 1: Switch / Add Google Account
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppColors.brandPrimary.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.switch_account, color: AppColors.brandPrimary),
+                  ),
+                  title: const Text('Đổi / Thêm tài khoản Google', style: TextStyle(color: AppColors.textPrimary)),
+                  subtitle: const Text('Mở Google Account Chooser để chọn hoặc đăng nhập mail khác',
+                      style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    final chooserUrl =
+                        'https://accounts.google.com/AccountChooser?continue=${Uri.encodeComponent(widget.session.rawUrl)}';
+                    _webViewController?.loadUrl(urlRequest: URLRequest(url: WebUri(chooserUrl)));
+                  },
+                ),
+
+                // Option 2: Open with external system browser (Chrome/Safari)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppColors.accentCyan.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.open_in_browser, color: AppColors.accentCyan),
+                  ),
+                  title: const Text('Mở bằng Trình duyệt máy (Chrome/Safari)',
+                      style: TextStyle(color: AppColors.textPrimary)),
+                  subtitle: const Text('Dùng luôn phiên đăng nhập Google có sẵn trên máy mà không cần nhập mật khẩu',
+                      style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    await InAppBrowser.openWithSystemBrowser(url: WebUri(widget.session.rawUrl));
+                  },
+                ),
+
+                // Option 3: Clear Cookies
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppColors.stateWarning.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.cleaning_services, color: AppColors.stateWarning),
+                  ),
+                  title: const Text('Xóa toàn bộ Cookie', style: TextStyle(color: AppColors.textPrimary)),
+                  subtitle: const Text('Reset sạch phiên đăng nhập nếu gặp lỗi tài khoản',
+                      style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    await CookieManager.instance().deleteAllCookies();
+                    _retry();
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Đã xóa toàn bộ cookie đăng nhập'),
+                          backgroundColor: AppColors.surfaceDark,
+                        ),
+                      );
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -262,6 +384,7 @@ class _RemoteScreenState extends State<RemoteScreen> {
               FloatingCapsule(
                 isWakelockEnabled: _isWakelock,
                 onToggleWakelock: _toggleWakelock,
+                onAccount: _showAccountModal,
                 onReload: () => _webViewController?.reload(),
                 onCopyUrl: _copyUrl,
                 onExit: () => Navigator.pop(context),
