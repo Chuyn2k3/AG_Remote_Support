@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import '../../core/services/heartbeat_service.dart';
+import '../../core/services/storage_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/url_parser.dart';
-import '../../core/services/storage_service.dart';
 import '../../core/widgets/apple_card.dart';
 import '../../models/remote_session.dart';
 import '../scanner/scanner_screen.dart';
@@ -27,17 +28,35 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   late List<RemoteSession> _sessions;
+  Map<String, DeviceStatus> _deviceStatuses = {};
 
   @override
   void initState() {
     super.initState();
     _loadSessions();
+    _refreshDeviceStatuses();
   }
 
   void _loadSessions() {
     setState(() {
       _sessions = widget.storageService.getSessions();
     });
+  }
+
+  Future<void> _refreshDeviceStatuses() async {
+    if (_sessions.isEmpty) return;
+    setState(() {
+      for (final s in _sessions) {
+        _deviceStatuses[s.id] = DeviceStatus.checking;
+      }
+    });
+
+    final statuses = await HeartbeatService.pingAll(_sessions);
+    if (mounted) {
+      setState(() {
+        _deviceStatuses = statuses;
+      });
+    }
   }
 
   Future<void> _handleScannedUrl(String url) async {
@@ -69,12 +88,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
     await widget.storageService.upsertSession(session);
     _loadSessions();
+    _refreshDeviceStatuses();
 
     if (mounted) {
       Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => RemoteScreen(session: session)),
-      ).then((_) => _loadSessions());
+      ).then((_) {
+        _loadSessions();
+        _refreshDeviceStatuses();
+      });
     }
   }
 
@@ -196,6 +219,9 @@ class _HomeScreenState extends State<HomeScreen> {
     if (shouldClear == true) {
       await widget.storageService.clearAll();
       _loadSessions();
+      setState(() {
+        _deviceStatuses.clear();
+      });
     }
   }
 
@@ -475,6 +501,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryColor = isDark ? AppColors.darkPrimary : AppColors.lightPrimary;
     final textPrimary = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
     final textSecondary = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
 
@@ -510,102 +537,115 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          children: [
-            // QR Scan Card
-            QrHeroCard(
-              onOpenScanner: _openScanner,
-              onPasteLink: _pasteLink,
-            ),
-            const SizedBox(height: 24),
-
-            // Section Header
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'THIẾT BỊ GẦN ĐÂY',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: textSecondary,
-                      letterSpacing: 0.6,
-                    ),
-                  ),
-                  if (_sessions.isNotEmpty)
-                    TextButton(
-                      onPressed: _showConfirmClearAllDialog,
-                      child: Text(
-                        'Xóa tất cả',
-                        style: TextStyle(fontSize: 11, color: textSecondary),
-                      ),
-                    ),
-                ],
+        child: RefreshIndicator(
+          color: primaryColor,
+          backgroundColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
+          onRefresh: _refreshDeviceStatuses,
+          child: ListView(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            physics: const AlwaysScrollableScrollPhysics(),
+            children: [
+              // QR Scan Card
+              QrHeroCard(
+                onOpenScanner: _openScanner,
+                onPasteLink: _pasteLink,
               ),
-            ),
-            const SizedBox(height: 8),
+              const SizedBox(height: 24),
 
-            // Sessions List or Empty State
-            if (_sessions.isEmpty)
-              AppleCard(
-                padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 20),
-                child: Column(
+              // Section Header
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Icon(
-                      Icons.devices_rounded,
-                      size: 40,
-                      color: textSecondary,
-                    ),
-                    const SizedBox(height: 12),
                     Text(
-                      'Chưa có thiết bị nào',
+                      'THIẾT BỊ GẦN ĐÂY',
                       style: TextStyle(
-                        fontSize: 15,
+                        fontSize: 11,
                         fontWeight: FontWeight.w600,
-                        color: textPrimary,
+                        color: textSecondary,
+                        letterSpacing: 0.6,
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Mở Antigravity 2.0 trên máy tính và bấm "Mở Camera" để kết nối.',
-                      style: TextStyle(fontSize: 12, color: textSecondary),
-                      textAlign: TextAlign.center,
-                    ),
+                    if (_sessions.isNotEmpty)
+                      TextButton(
+                        onPressed: _showConfirmClearAllDialog,
+                        child: Text(
+                          'Xóa tất cả',
+                          style: TextStyle(fontSize: 11, color: textSecondary),
+                        ),
+                      ),
                   ],
                 ),
-              )
-            else
-              ..._sessions.map((s) => Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: SessionCard(
-                      session: s,
-                      onConnect: () {
-                        s.lastAccessedAt = DateTime.now();
-                        widget.storageService.upsertSession(s);
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => RemoteScreen(session: s)),
-                        ).then((_) => _loadSessions());
-                      },
-                      onOpenInBrowser: () async {
-                        await InAppBrowser.openWithSystemBrowser(url: WebUri(s.rawUrl));
-                      },
-                      onRename: () => _showRenameDialog(s),
-                      onDelete: () async {
-                        await widget.storageService.deleteSession(s.id);
-                        _loadSessions();
-                      },
-                      onTogglePin: () async {
-                        s.isPinned = !s.isPinned;
-                        await widget.storageService.upsertSession(s);
-                        _loadSessions();
-                      },
-                    ),
-                  )),
-          ],
+              ),
+              const SizedBox(height: 8),
+
+              // Sessions List or Empty State
+              if (_sessions.isEmpty)
+                AppleCard(
+                  padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 20),
+                  child: Column(
+                    children: [
+                      Icon(
+                        Icons.devices_rounded,
+                        size: 40,
+                        color: textSecondary,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Chưa có thiết bị nào',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Mở Antigravity 2.0 trên máy tính và bấm "Mở Camera" để kết nối.',
+                        style: TextStyle(fontSize: 12, color: textSecondary),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                )
+              else
+                ..._sessions.map((s) => Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: SessionCard(
+                        session: s,
+                        status: _deviceStatuses[s.id] ?? DeviceStatus.checking,
+                        onConnect: () {
+                          s.lastAccessedAt = DateTime.now();
+                          widget.storageService.upsertSession(s);
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => RemoteScreen(session: s)),
+                          ).then((_) {
+                            _loadSessions();
+                            _refreshDeviceStatuses();
+                          });
+                        },
+                        onOpenInBrowser: () async {
+                          await InAppBrowser.openWithSystemBrowser(url: WebUri(s.rawUrl));
+                        },
+                        onRename: () => _showRenameDialog(s),
+                        onDelete: () async {
+                          await widget.storageService.deleteSession(s.id);
+                          _loadSessions();
+                          setState(() {
+                            _deviceStatuses.remove(s.id);
+                          });
+                        },
+                        onTogglePin: () async {
+                          s.isPinned = !s.isPinned;
+                          await widget.storageService.upsertSession(s);
+                          _loadSessions();
+                        },
+                      ),
+                    )),
+            ],
+          ),
         ),
       ),
     );
