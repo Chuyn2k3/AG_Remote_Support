@@ -41,11 +41,45 @@ class StorageService {
     await _prefs.setBool(_biometricEnabledKey, enabled);
   }
 
+  static const String _encPrefix = 'enc:v1:';
+  static const List<int> _cipherKey = [
+    0x56, 0x48, 0x54, 0x5F, 0x41, 0x47, 0x59, 0x32, 0x30, 0x32, 0x36, 0x5F, 0x53, 0x45, 0x43
+  ];
+
+  static String _obfuscate(String plaintext) {
+    final bytes = utf8.encode(plaintext);
+    final xorBytes = List<int>.generate(bytes.length, (i) => bytes[i] ^ _cipherKey[i % _cipherKey.length]);
+    return '$_encPrefix${base64.encode(xorBytes)}';
+  }
+
+  static String _deobfuscate(String raw) {
+    if (raw.startsWith(_encPrefix)) {
+      try {
+        final b64 = raw.substring(_encPrefix.length);
+        final xorBytes = base64.decode(b64);
+        final bytes = List<int>.generate(xorBytes.length, (i) => xorBytes[i] ^ _cipherKey[i % _cipherKey.length]);
+        return utf8.decode(bytes);
+      } catch (_) {
+        return raw;
+      }
+    }
+    // Backward compatibility: If plain legacy JSON, return as-is
+    return raw;
+  }
+
   // --- SESSIONS PERSISTENCE ---
   List<RemoteSession> getSessions() {
     final rawList = _prefs.getStringList(_sessionsKey) ?? [];
     return rawList
-        .map((item) => RemoteSession.fromJson(jsonDecode(item) as Map<String, dynamic>))
+        .map((item) {
+          try {
+            final jsonStr = _deobfuscate(item);
+            return RemoteSession.fromJson(jsonDecode(jsonStr) as Map<String, dynamic>);
+          } catch (_) {
+            return null;
+          }
+        })
+        .whereType<RemoteSession>()
         .toList()
       ..sort((a, b) {
         if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
@@ -74,8 +108,15 @@ class StorageService {
     await _prefs.remove(_sessionsKey);
   }
 
+  /// Xóa sạch khẩn cấp toàn bộ dữ liệu phiên, theme, và cài đặt
+  Future<void> emergencyWipe() async {
+    await _prefs.remove(_sessionsKey);
+    await _prefs.remove(_themeModeKey);
+    await _prefs.remove(_biometricEnabledKey);
+  }
+
   Future<void> _saveList(List<RemoteSession> list) async {
-    final rawList = list.map((s) => jsonEncode(s.toJson())).toList();
+    final rawList = list.map((s) => _obfuscate(jsonEncode(s.toJson()))).toList();
     await _prefs.setStringList(_sessionsKey, rawList);
   }
 }
