@@ -955,18 +955,20 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
           bottom: false,
           child: Column(
             children: [
-              // Tab bar (chỉ hiện khi có nhiều hơn 1 tab)
+              // Tab bar (chỉ hiện khi có nhiều hơn 1 tab) - Render layer isolation
               if (_tabs.length > 1)
-                SessionTabBar(
-                  sessions: _tabs.map((t) => t.session).toList(),
-                  activeIndex: _activeTabIndex,
-                  onTabSelected: _switchTab,
-                  onTabClosed: _closeTab,
-                  onAddTab: _showAddTabSheet,
-                  isSplitScreen: _isSplitScreen,
-                  onToggleSplitScreen: _toggleSplitScreen,
-                  isLandscape: _isLandscape,
-                  onToggleOrientation: _toggleOrientation,
+                RepaintBoundary(
+                  child: SessionTabBar(
+                    sessions: _tabs.map((t) => t.session).toList(),
+                    activeIndex: _activeTabIndex,
+                    onTabSelected: _switchTab,
+                    onTabClosed: _closeTab,
+                    onAddTab: _showAddTabSheet,
+                    isSplitScreen: _isSplitScreen,
+                    onToggleSplitScreen: _toggleSplitScreen,
+                    isLandscape: _isLandscape,
+                    onToggleOrientation: _toggleOrientation,
+                  ),
                 ),
               Expanded(
                 child: Stack(
@@ -1255,8 +1257,9 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
   /// Tạo InAppWebView cho một tab cụ thể với state callbacks riêng.
   Widget _buildTabWebView(int tabIndex) {
     final tab = _tabs[tabIndex];
-    return InAppWebView(
-      key: tab.webViewKey,
+    return RepaintBoundary(
+      child: InAppWebView(
+        key: tab.webViewKey,
       initialUrlRequest: URLRequest(
         url: WebUri(HeartbeatService.getTargetUrl(tab.session)),
       ),
@@ -1276,6 +1279,8 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
         databaseEnabled: true,
         thirdPartyCookiesEnabled: true,
         cacheEnabled: true,
+        cacheMode: CacheMode.LOAD_DEFAULT,
+        clearCache: false,
         supportMultipleWindows: false,
         javaScriptCanOpenWindowsAutomatically: false,
         mixedContentMode: MixedContentMode.MIXED_CONTENT_NEVER_ALLOW,
@@ -1393,8 +1398,9 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
       onReceivedHttpError: (controller, request, errorResponse) {
         debugPrint('WebView HTTP Error: ${errorResponse.statusCode}');
       },
-    );
-  }
+    ),
+  );
+}
 
   /// Switch sang tab khác (IndexedStack — WebView giữ state, không reload)
   void _switchTab(int index) {
