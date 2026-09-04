@@ -10,6 +10,7 @@ class FloatingCapsule extends StatefulWidget {
   final VoidCallback onExit;
   final VoidCallback onCopyUrl;
   final VoidCallback onAccount;
+  final VoidCallback? onVoicePrompt;
 
   const FloatingCapsule({
     super.key,
@@ -19,6 +20,7 @@ class FloatingCapsule extends StatefulWidget {
     required this.onExit,
     required this.onCopyUrl,
     required this.onAccount,
+    this.onVoicePrompt,
   });
 
   @override
@@ -34,7 +36,7 @@ class _FloatingCapsuleState extends State<FloatingCapsule> {
     final screenSize = MediaQuery.of(context).size;
 
     return Positioned(
-      left: _offset.dx.clamp(10.0, screenSize.width - (_isMini ? 55.0 : 330.0)),
+      left: _offset.dx.clamp(10.0, screenSize.width - (_isMini ? 55.0 : 380.0)),
       top: _offset.dy.clamp(44.0, screenSize.height - 110.0),
       child: GestureDetector(
         onPanUpdate: (details) {
@@ -113,6 +115,19 @@ class _FloatingCapsuleState extends State<FloatingCapsule> {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
+        // Voice Prompt Action
+        if (widget.onVoicePrompt != null) ...[
+          _buildActionButton(
+            icon: Icons.mic_rounded,
+            label: 'Voice',
+            color: const Color(0xFF0A84FF),
+            onTap: () {
+              HapticFeedback.lightImpact();
+              widget.onVoicePrompt?.call();
+            },
+          ),
+          _buildDivider(),
+        ],
         // Keep Awake Toggle
         _buildActionButton(
           icon: widget.isWakelockEnabled ? Icons.lightbulb_rounded : Icons.lightbulb_outline_rounded,

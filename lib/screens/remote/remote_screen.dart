@@ -7,7 +7,9 @@ import '../../core/services/storage_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/services/wakelock_service.dart';
 import '../../models/remote_session.dart';
+import '../../core/services/speech_service.dart';
 import 'widgets/floating_capsule.dart';
+import 'widgets/voice_prompt_modal.dart';
 
 class RemoteScreen extends StatefulWidget {
   final RemoteSession session;
@@ -32,6 +34,7 @@ class _RemoteScreenState extends State<RemoteScreen> {
   bool _isInstanceDisconnected = false;
   Timer? _disconnectCheckTimer;
   StorageService? _storageService;
+  final SpeechService _speechService = SpeechService();
 
   // Custom User-Agent giả lập Chrome Mobile chuẩn để vượt qua Google OAuth 403 disallowed_useragent
   static const String customUserAgent =
@@ -128,6 +131,7 @@ class _RemoteScreenState extends State<RemoteScreen> {
   @override
   void dispose() {
     _disconnectCheckTimer?.cancel();
+    _speechService.cancelListening();
     WakelockService.disable();
     super.dispose();
   }
@@ -644,11 +648,103 @@ class _RemoteScreenState extends State<RemoteScreen> {
                 onReload: () => _webViewController?.reload(),
                 onCopyUrl: _copyUrl,
                 onExit: () => Navigator.pop(context),
+                onVoicePrompt: _openVoicePromptModal,
               ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  void _openVoicePromptModal() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => VoicePromptModal(
+        speechService: _speechService,
+        onSendPrompt: (text, autoSubmit) {
+          _injectPromptIntoWebView(text, autoSubmit: autoSubmit);
+        },
+      ),
+    );
+  }
+
+  Future<void> _injectPromptIntoWebView(String text, {required bool autoSubmit}) async {
+    if (_webViewController == null) return;
+
+    final escapedText = text
+        .replaceAll(r'\', r'\\')
+        .replaceAll("'", r"\'")
+        .replaceAll('\n', r'\n')
+        .replaceAll('\r', '');
+
+    try {
+      final dynamic result = await _webViewController?.evaluateJavascript(source: '''
+        (function() {
+          try {
+            const candidates = [
+              document.querySelector('textarea:not([disabled])'),
+              document.querySelector('[contenteditable="true"]'),
+              document.querySelector('input[type="text"]:not([disabled])'),
+              document.querySelector('mwc-textarea textarea'),
+              document.querySelector('.chat-input textarea')
+            ];
+            const target = candidates.find(el => el !== null && el.offsetParent !== null) || candidates.find(el => el !== null);
+            if (!target) return false;
+
+            target.focus();
+            if (target.isContentEditable) {
+              target.innerText = (target.innerText ? target.innerText + ' ' : '') + '$escapedText';
+            } else {
+              const prev = target.value || '';
+              target.value = (prev ? prev + ' ' : '') + '$escapedText';
+            }
+
+            target.dispatchEvent(new Event('input', { bubbles: true }));
+            target.dispatchEvent(new Event('change', { bubbles: true }));
+
+            if ($autoSubmit) {
+              setTimeout(() => {
+                const sendBtn = document.querySelector('button[aria-label*="Send"], button[aria-label*="Gửi"], [data-test-id="send-button"], button[type="submit"]');
+                if (sendBtn) {
+                  sendBtn.click();
+                } else {
+                  target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                  target.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                }
+              }, 200);
+            }
+            return true;
+          } catch(e) {
+            return false;
+          }
+        })()
+      ''');
+
+      final bool success = (result == true || result == 'true' || result == 1);
+      if (!success) {
+        await Clipboard.setData(ClipboardData(text: text));
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            duration: Duration(seconds: 3),
+            content: Text('📋 Đã sao chép prompt vào Clipboard. Chạm vào ô chat để dán!'),
+          ),
+        );
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            duration: const Duration(seconds: 2),
+            content: Text(autoSubmit ? '🚀 Đã gửi câu lệnh tới Antigravity!' : '✏️ Đã điền câu lệnh vào ô chat.'),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error injecting prompt: $e');
+      await Clipboard.setData(ClipboardData(text: text));
+    }
   }
 }
