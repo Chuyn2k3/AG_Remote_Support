@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'core/services/app_lifecycle_service.dart';
 import 'core/services/biometric_service.dart';
+import 'core/services/notification_service.dart';
 import 'core/services/storage_service.dart';
 import 'core/theme/app_theme.dart';
 import 'screens/home/home_screen.dart';
@@ -20,8 +22,14 @@ void main() async {
     ),
   );
 
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+  ]);
+
   final storageService = await StorageService.init();
   final biometricService = BiometricService();
+  await NotificationService().init();
+  AppLifecycleService.initOverlayCommunication();
   appThemeNotifier.value = storageService.getThemeMode();
 
   runApp(AntigravityApp(
@@ -46,7 +54,11 @@ class AntigravityApp extends StatefulWidget {
 
 class _AntigravityAppState extends State<AntigravityApp> with WidgetsBindingObserver {
   late bool _isLocked;
-  bool _needsUnlock = false;
+  DateTime? _pausedAt;
+  DateTime? _lastUnlockedAt;
+
+  // Thời gian app ở background trước khi bắt buộc xác thực lại (30 giây)
+  static const Duration _lockGracePeriod = Duration(seconds: 30);
 
   @override
   void initState() {
@@ -63,24 +75,30 @@ class _AntigravityAppState extends State<AntigravityApp> with WidgetsBindingObse
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Không thực hiện lock nếu hộp thoại sinh trắc học của hệ thống đang hiển thị
+    // Không xử lý nếu hộp thoại sinh trắc học của hệ thống đang mở
     if (BiometricService.isAuthenticating) return;
 
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.hidden ||
-        state == AppLifecycleState.inactive) {
-      if (widget.storageService.isBiometricEnabled()) {
-        _needsUnlock = true;
-      }
+    // QUAN TRỌNG: Tuyệt đối KHÔNG bắt AppLifecycleState.inactive
+    // vì inactive xảy ra khi: mở camera quét QR, hiện dialog quyền, kéo status bar,
+    // hoặc vừa đóng hộp thoại vân tay xong.
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
+      _pausedAt = DateTime.now();
     } else if (state == AppLifecycleState.resumed) {
-      if (_needsUnlock && widget.storageService.isBiometricEnabled()) {
-        _needsUnlock = false;
-        if (!_isLocked) {
-          setState(() {
-            _isLocked = true;
-          });
+      if (widget.storageService.isBiometricEnabled() && !_isLocked) {
+        // Tránh khóa lại nếu vừa mới unlock trong vòng 5 giây
+        final bool isRecentUnlock = _lastUnlockedAt != null &&
+            DateTime.now().difference(_lastUnlockedAt!) < const Duration(seconds: 5);
+
+        if (!isRecentUnlock && _pausedAt != null) {
+          final elapsed = DateTime.now().difference(_pausedAt!);
+          if (elapsed >= _lockGracePeriod) {
+            setState(() {
+              _isLocked = true;
+            });
+          }
         }
       }
+      _pausedAt = null;
     }
   }
 
@@ -113,6 +131,7 @@ class _AntigravityAppState extends State<AntigravityApp> with WidgetsBindingObse
                         onAuthenticated: () {
                           setState(() {
                             _isLocked = false;
+                            _lastUnlockedAt = DateTime.now();
                           });
                         },
                       ),

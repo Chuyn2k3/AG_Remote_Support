@@ -13,6 +13,13 @@ class FloatingCapsule extends StatefulWidget {
   final VoidCallback onAccount;
   final VoidCallback? onVoicePrompt;
   final VoidCallback? onGitActions;
+  final VoidCallback? onBubble;
+  final bool bubbleActive;
+  final VoidCallback? onTestNotification;
+  final VoidCallback? onToggleSplit;
+  final bool isSplitActive;
+  final VoidCallback? onToggleOrientation;
+  final bool isLandscape;
 
   const FloatingCapsule({
     super.key,
@@ -24,6 +31,13 @@ class FloatingCapsule extends StatefulWidget {
     required this.onAccount,
     this.onVoicePrompt,
     this.onGitActions,
+    this.onBubble,
+    this.bubbleActive = false,
+    this.onTestNotification,
+    this.onToggleSplit,
+    this.isSplitActive = false,
+    this.onToggleOrientation,
+    this.isLandscape = false,
   });
 
   @override
@@ -148,6 +162,70 @@ class _FloatingCapsuleState extends State<FloatingCapsule> {
               onTap: () {
                 HapticFeedback.lightImpact();
                 widget.onGitActions?.call();
+              },
+            ),
+            _buildDivider(),
+          ],
+          // Floating Bubble (Android-only)
+          if (widget.onBubble != null) ...[
+            _buildActionButton(
+              icon: widget.bubbleActive
+                  ? Icons.bubble_chart_rounded
+                  : Icons.bubble_chart_outlined,
+              label: widget.bubbleActive ? 'Bubble ●' : 'Bubble',
+              color: widget.bubbleActive
+                  ? const Color(0xFFFF9F0A)
+                  : Colors.white70,
+              onTap: () {
+                HapticFeedback.mediumImpact();
+                widget.onBubble?.call();
+              },
+            ),
+            _buildDivider(),
+          ],
+          // Test Notification
+          if (widget.onTestNotification != null) ...[
+            _buildActionButton(
+              icon: Icons.notifications_active_outlined,
+              label: 'Test Notif',
+              color: const Color(0xFFFFD60A),
+              onTap: () {
+                HapticFeedback.lightImpact();
+                widget.onTestNotification?.call();
+              },
+            ),
+            _buildDivider(),
+          ],
+          // Split Screen (Chia đôi màn hình)
+          if (widget.onToggleSplit != null) ...[
+            _buildActionButton(
+              icon: widget.isSplitActive
+                  ? Icons.splitscreen_rounded
+                  : Icons.splitscreen_outlined,
+              label: widget.isSplitActive ? 'Chia đôi ●' : 'Chia đôi',
+              color: widget.isSplitActive
+                  ? const Color(0xFF38BDF8)
+                  : Colors.white70,
+              onTap: () {
+                HapticFeedback.mediumImpact();
+                widget.onToggleSplit?.call();
+              },
+            ),
+            _buildDivider(),
+          ],
+          // Xoay màn hình (Rotate)
+          if (widget.onToggleOrientation != null) ...[
+            _buildActionButton(
+              icon: widget.isLandscape
+                  ? Icons.screen_lock_landscape_rounded
+                  : Icons.screen_rotation_rounded,
+              label: widget.isLandscape ? 'Dọc' : 'Ngang',
+              color: widget.isLandscape
+                  ? const Color(0xFF30D158)
+                  : Colors.white70,
+              onTap: () {
+                HapticFeedback.mediumImpact();
+                widget.onToggleOrientation?.call();
               },
             ),
             _buildDivider(),
