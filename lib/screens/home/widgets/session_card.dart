@@ -47,10 +47,17 @@ class SessionCard extends StatelessWidget {
     Color statusColor;
     String statusLabel;
     String statusSubtitle;
+    Color? dotCustomColor;
+
     if (status == DeviceStatus.online) {
       statusColor = isDark ? AppColors.statusSuccessDark : AppColors.statusSuccess;
       statusLabel = 'Active';
       statusSubtitle = 'Sẵn sàng kết nối';
+    } else if (status == DeviceStatus.authRequired) {
+      statusColor = AppColors.statusWarning;
+      statusLabel = 'Cần xác thực';
+      statusSubtitle = 'Chạm để đăng nhập Google';
+      dotCustomColor = AppColors.statusWarning;
     } else if (status == DeviceStatus.offline) {
       statusColor = textSecondary;
       statusLabel = 'Offline';
@@ -72,6 +79,7 @@ class SessionCard extends StatelessWidget {
               StatusDot(
                 isOnline: status == DeviceStatus.online,
                 size: 8,
+                customColor: dotCustomColor,
               ),
               const SizedBox(width: 8),
               Expanded(

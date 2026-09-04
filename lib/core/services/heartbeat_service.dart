@@ -9,10 +9,11 @@ enum DeviceStatus {
   online,
   offline,
   checking,
+  authRequired,
 }
 
 class HeartbeatService {
-  static const int defaultTimeoutMs = 4500;
+  static const int defaultTimeoutMs = 6500;
   static const String customUserAgent =
       'Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36';
 
@@ -44,12 +45,14 @@ class HeartbeatService {
   }) async {
     HeadlessInAppWebView? headless;
     Timer? pollTimer;
+    bool? confirmedDisconnected;
 
     try {
       final completer = Completer<DeviceStatus>();
+      final targetUrl = getTargetUrl(session);
 
       headless = HeadlessInAppWebView(
-        initialUrlRequest: URLRequest(url: WebUri(session.rawUrl)),
+        initialUrlRequest: URLRequest(url: WebUri(targetUrl)),
         initialSettings: InAppWebViewSettings(
           userAgent: customUserAgent,
           javaScriptEnabled: true,
@@ -85,7 +88,7 @@ class HeartbeatService {
                         document.querySelector('.disconnect-card, .no-instance-card, [data-status="disconnected"]') !== null) {
                       return 'disconnected';
                     }
-                    if (location.host.includes('accounts.google.com') || text.includes('sign in')) {
+                    if (location.host.includes('accounts.google.com') || text.includes('sign in') || text.includes('đăng nhập')) {
                       return 'auth_required';
                     }
                     if (text.length > 30 && document.querySelector('button, mwc-button, textarea, input, [role="main"]') !== null) {
@@ -98,20 +101,25 @@ class HeartbeatService {
                 })()
               ''');
 
-              if (res == 'disconnected' || res == 'auth_required') {
+              if (res == 'disconnected') {
+                confirmedDisconnected = true;
                 t.cancel();
                 if (!completer.isCompleted) completer.complete(DeviceStatus.offline);
+              } else if (res == 'auth_required') {
+                t.cancel();
+                if (!completer.isCompleted) completer.complete(DeviceStatus.authRequired);
               } else if (res == 'online') {
+                confirmedDisconnected = false;
                 t.cancel();
                 if (!completer.isCompleted) completer.complete(DeviceStatus.online);
-              } else if (checks >= 7) {
+              } else if (checks >= 10) {
                 t.cancel();
                 if (!completer.isCompleted) {
                   completer.complete(DeviceStatus.online);
                 }
               }
             } catch (_) {
-              if (checks >= 7) {
+              if (checks >= 10) {
                 t.cancel();
                 if (!completer.isCompleted) completer.complete(DeviceStatus.offline);
               }
@@ -129,15 +137,18 @@ class HeartbeatService {
 
       final status = await completer.future.timeout(
         Duration(milliseconds: timeoutMs),
-        onTimeout: () => session.isDisconnected ? DeviceStatus.offline : evaluateSessionStatus(session),
+        onTimeout: () => evaluateSessionStatus(session),
       );
 
-      // Cập nhật cờ dữ liệu thực tế và lưu vào storage
-      final bool isDisconn = (status == DeviceStatus.offline);
-      session.isDisconnected = isDisconn;
-      if (!isDisconn) {
+      // Cập nhật cờ dữ liệu thực tế và lưu vào storage:
+      // CHỈ đánh dấu ngắt kết nối khi nhận diện rõ ràng tín hiệu 'disconnected' từ DOM!
+      if (confirmedDisconnected == true) {
+        session.isDisconnected = true;
+      } else if (status == DeviceStatus.online) {
+        session.isDisconnected = false;
         session.lastAccessedAt = DateTime.now();
       }
+
       if (storageService != null) {
         await storageService.upsertSession(session);
       }

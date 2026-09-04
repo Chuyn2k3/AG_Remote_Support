@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../../core/services/storage_service.dart';
+import '../../core/services/heartbeat_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/services/wakelock_service.dart';
 import '../../models/remote_session.dart';
@@ -183,8 +184,9 @@ class _RemoteScreenState extends State<RemoteScreen> {
     });
     widget.session.isDisconnected = false;
     _saveSessionState();
+    final targetUrl = HeartbeatService.getTargetUrl(widget.session);
     _webViewController?.loadUrl(
-      urlRequest: URLRequest(url: WebUri(widget.session.rawUrl)),
+      urlRequest: URLRequest(url: WebUri(targetUrl)),
     );
   }
 
@@ -356,7 +358,9 @@ class _RemoteScreenState extends State<RemoteScreen> {
               // InAppWebView full screen
               Positioned.fill(
                 child: InAppWebView(
-                  initialUrlRequest: URLRequest(url: WebUri(widget.session.rawUrl)),
+                  initialUrlRequest: URLRequest(
+                    url: WebUri(HeartbeatService.getTargetUrl(widget.session)),
+                  ),
                   initialSettings: InAppWebViewSettings(
                     userAgent: customUserAgent,
                     javaScriptEnabled: true,
