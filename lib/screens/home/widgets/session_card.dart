@@ -13,6 +13,7 @@ class SessionCard extends StatelessWidget {
   final VoidCallback onRename;
   final VoidCallback onDelete;
   final VoidCallback onTogglePin;
+  final VoidCallback? onRefreshStatus;
 
   const SessionCard({
     super.key,
@@ -23,6 +24,7 @@ class SessionCard extends StatelessWidget {
     required this.onRename,
     required this.onDelete,
     required this.onTogglePin,
+    this.onRefreshStatus,
   });
 
   String _formatTime(DateTime dt) {
@@ -117,6 +119,7 @@ class SessionCard extends StatelessWidget {
                 color: isDark ? AppColors.darkSurfaceSecondary : AppColors.lightSurface,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 onSelected: (val) {
+                  if (val == 'check') onRefreshStatus?.call();
                   if (val == 'browser') onOpenInBrowser();
                   if (val == 'rename') onRename();
                   if (val == 'delete') onDelete();
@@ -127,6 +130,17 @@ class SessionCard extends StatelessWidget {
                     value: 'pin',
                     child: Text(session.isPinned ? 'Bỏ ghim' : 'Ghim lên đầu'),
                   ),
+                  if (onRefreshStatus != null)
+                    const PopupMenuItem(
+                      value: 'check',
+                      child: Row(
+                        children: [
+                          Icon(Icons.refresh_rounded, size: 16),
+                          SizedBox(width: 8),
+                          Text('Kiểm tra trạng thái máy'),
+                        ],
+                      ),
+                    ),
                   const PopupMenuItem(
                     value: 'browser',
                     child: Row(

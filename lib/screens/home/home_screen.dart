@@ -51,11 +51,31 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     });
 
-    final statuses = await HeartbeatService.pingAll(_sessions);
+    final statuses = await HeartbeatService.pingAll(
+      _sessions,
+      storageService: widget.storageService,
+    );
     if (mounted) {
       setState(() {
         _deviceStatuses = statuses;
       });
+      _loadSessions();
+    }
+  }
+
+  Future<void> _probeSingleSession(RemoteSession s) async {
+    setState(() {
+      _deviceStatuses[s.id] = DeviceStatus.checking;
+    });
+    final status = await HeartbeatService.probeSession(
+      s,
+      storageService: widget.storageService,
+    );
+    if (mounted) {
+      setState(() {
+        _deviceStatuses[s.id] = status;
+      });
+      _loadSessions();
     }
   }
 
@@ -650,6 +670,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           await widget.storageService.upsertSession(s);
                           _loadSessions();
                         },
+                        onRefreshStatus: () => _probeSingleSession(s),
                       ),
                     )),
             ],
