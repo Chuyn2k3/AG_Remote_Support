@@ -220,43 +220,62 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
       final dynamic result = await _webViewController?.evaluateJavascript(source: '''
         (function() {
           try {
-            // 1. Kiểm tra các nút Stop / Cancel / Dừng
-            const stopKeywords = ['stop', 'cancel', 'dừng', 'hủy', 'abort', 'pause'];
-            let hasStopButton = false;
-            const buttons = document.querySelectorAll('button, [role="button"], a');
-            for (let i = 0; i < buttons.length; i++) {
-              const b = buttons[i];
-              const aria = (b.getAttribute('aria-label') || '').toLowerCase();
-              const title = (b.getAttribute('title') || '').toLowerCase();
-              const text = (b.innerText || '').toLowerCase().trim();
-              for (let k = 0; k < stopKeywords.length; k++) {
-                const kw = stopKeywords[k];
-                if (aria.includes(kw) || title.includes(kw) || text === kw) {
-                  hasStopButton = true;
+            function checkTree(root) {
+              const stopKeywords = ['stop', 'cancel', 'dừng', 'hủy', 'abort', 'pause', 'interrupt', 'terminate', 'halt'];
+              const buttons = root.querySelectorAll('button, [role="button"], a, div[tabindex]');
+              for (let i = 0; i < buttons.length; i++) {
+                const b = buttons[i];
+                const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+                const title = (b.getAttribute('title') || '').toLowerCase();
+                const text = (b.innerText || '').toLowerCase().trim();
+                const cls = (b.className || '').toString().toLowerCase();
+                for (let k = 0; k < stopKeywords.length; k++) {
+                  const kw = stopKeywords[k];
+                  if (aria.includes(kw) || title.includes(kw) || text === kw || cls.includes(kw)) {
+                    return true;
+                  }
+                }
+              }
+              const icons = root.querySelectorAll('mat-icon, .google-symbols, i, svg, [class*="codicon"]');
+              for (let j = 0; j < icons.length; j++) {
+                const el = icons[j];
+                const t = (el.innerText || '').toLowerCase().trim();
+                const cls = (el.className || '').toString().toLowerCase();
+                if (t === 'stop' || t === 'pause' || t === 'stop_circle' || t === 'cancel' ||
+                    cls.includes('stop') || cls.includes('pause') || cls.includes('codicon-debug-stop') || cls.includes('codicon-stop')) {
+                  return true;
+                }
+              }
+              if (root.querySelector(
+                '[aria-busy="true"], mat-progress-bar, mat-spinner, .mat-mdc-progress-bar, ' +
+                'mwc-circular-progress, [data-is-generating="true"], [data-status="generating"], ' +
+                '.loading, .spinner, .typing, .streaming, .cursor, .blinking-cursor, ' +
+                '[class*="generating"], [class*="streaming"], [class*="thinking"], [class*="in-progress"]'
+              )) {
+                return true;
+              }
+              return false;
+            }
+
+            let isGenerating = checkTree(document);
+            if (!isGenerating) {
+              const all = document.querySelectorAll('*');
+              for (let i = 0; i < all.length; i++) {
+                if (all[i].shadowRoot && checkTree(all[i].shadowRoot)) {
+                  isGenerating = true;
                   break;
                 }
               }
-              if (hasStopButton) break;
             }
 
-            // 2. Icon dạng Stop / Loading / Streaming / Thinking
-            const hasIndicator = document.querySelector(
-              '[aria-busy="true"], mat-progress-bar, mat-spinner, .mat-mdc-progress-bar, ' +
-              '.loading, .spinner, .typing, .streaming, [data-is-generating="true"], ' +
-              '.cursor, .blinking-cursor, [class*="generating"], [class*="streaming"], [class*="thinking"]'
-            ) !== null;
-
-            const isGenerating = hasStopButton || hasIndicator;
-
-            // 3. Độ dài text toàn trang
             const bodyText = document.body ? (document.body.innerText || '') : '';
             const textLen = bodyText.length;
 
-            // 4. Trích xuất preview phản hồi
             let preview = '';
             const candidates = document.querySelectorAll(
               '.model-response, [data-role="model"], .response-text, .message-content, ' +
-              '[class*="response"]:last-child, [class*="message"]:last-child, pre, code, p'
+              '[class*="response"], [class*="message"], [class*="agent"], [class*="assistant"], ' +
+              '.chat-message, pre, code, p'
             );
             if (candidates.length > 0) {
               for (let i = candidates.length - 1; i >= 0; i--) {
@@ -272,7 +291,6 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
               preview = trimmed.length > 150 ? trimmed.substring(trimmed.length - 150) : trimmed;
             }
 
-            // 5. Cờ đánh dấu người dùng vừa gửi câu lệnh
             const userRecentlySent = window.__agUserRecentlySent === true;
             if (userRecentlySent) {
               window.__agUserRecentlySent = false;
@@ -291,7 +309,15 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
       ''');
 
       if (result == null || !mounted) return;
-      final Map<String, dynamic> data = jsonDecode(result.toString());
+      Map<String, dynamic> data;
+      if (result is Map) {
+        data = Map<String, dynamic>.from(result);
+      } else {
+        final str = result.toString();
+        if (str.isEmpty || str == 'null') return;
+        data = jsonDecode(str) as Map<String, dynamic>;
+      }
+
       final bool isGenerating = data['isGenerating'] == true;
       final int textLen = (data['textLen'] as num?)?.toInt() ?? 0;
       final String preview = data['preview']?.toString() ?? '';
@@ -304,7 +330,7 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
         userRecentlySent: userRecentlySent,
       );
     } catch (e) {
-      // Ignored
+      debugPrint('[RemoteScreen] _pollAIResponseStatus error: $e');
     }
   }
 
@@ -314,6 +340,14 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
     required String preview,
     required bool userRecentlySent,
   }) {
+    // 1. Khởi tạo baseline ban đầu nếu chưa có
+    if (_aiLastTextLength == 0 && textLen > 0) {
+      _aiLastTextLength = textLen;
+      debugPrint('[AI Monitor] Baseline text length initialized: $textLen');
+      return;
+    }
+
+    // 2. Người dùng vừa gửi câu lệnh
     if (userRecentlySent) {
       _aiIsWorking = true;
       _aiNotified = false;
@@ -325,38 +359,47 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
       return;
     }
 
+    // 3. AI đang có chỉ thị sinh (Stop button, spinner, cursor)
     if (isGenerating) {
       _aiIsWorking = true;
       _aiNotified = false;
       _aiLastActivityTime = DateTime.now();
       _aiLastTextLength = textLen;
       if (preview.isNotEmpty) _aiLastPreview = preview;
-      debugPrint('[AI Monitor] AI is actively generating response (text len: $textLen)...');
+      debugPrint('[AI Monitor] AI is generating by indicator (text len: $textLen)...');
       _nativeBubbleService.startForegroundWatcher(title: _activeTab.session.title);
       _nativeBubbleService.updateBubbleStatus('thinking');
       return;
     }
 
-    // Nếu text dài ra > 10 ký tự -> AI đang stream nội dung
-    if (_aiLastTextLength > 0 && textLen > _aiLastTextLength + 10) {
+    // 4. Nếu text dài ra > 8 ký tự -> Có nội dung mới đang stream hoặc message mới
+    if (textLen > _aiLastTextLength + 8) {
       _aiIsWorking = true;
       _aiNotified = false;
       _aiLastActivityTime = DateTime.now();
       _aiLastTextLength = textLen;
       if (preview.isNotEmpty) _aiLastPreview = preview;
-      debugPrint('[AI Monitor] AI streaming detected by text growth (len: $textLen)...');
+      debugPrint('[AI Monitor] Text growth detected ($textLen chars, +${textLen - _aiLastTextLength}). Activating watcher...');
       _nativeBubbleService.startForegroundWatcher(title: _activeTab.session.title);
       _nativeBubbleService.updateBubbleStatus('thinking');
       return;
     }
 
-    // Khi AI đã từng xử lý câu lệnh VÀ không còn sinh nữa VÀ text dừng thay đổi trong 2.0s
+    // 5. Nếu text giảm mạnh (> 50 ký tự), có thể trang bị reload hoặc clear chat
+    if (textLen < _aiLastTextLength - 50) {
+      _aiLastTextLength = textLen;
+      _aiIsWorking = false;
+      return;
+    }
+
+    // 6. Khi AI đã từng xử lý câu lệnh VÀ không còn sinh nữa VÀ text dừng thay đổi trong 2.0s
     if (_aiIsWorking && !isGenerating && !_aiNotified) {
       final lastTime = _aiLastActivityTime ?? DateTime.now();
       final elapsed = DateTime.now().difference(lastTime).inMilliseconds;
       if (elapsed >= 2000) {
         _aiIsWorking = false;
         _aiNotified = true;
+        _aiLastTextLength = textLen; // Cập nhật mốc mới cho câu lệnh kế tiếp
         debugPrint('[AI Monitor] AI completed response! Triggering notification and releasing watcher...');
         final sendPreview = _aiLastPreview.isNotEmpty ? _aiLastPreview : (preview.isNotEmpty ? preview : null);
         _notificationService.showAICompletedNotification(
@@ -1055,6 +1098,18 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
             }
           },
         );
+        // Đăng ký JS handler nhận callback khi người dùng gửi prompt
+        controller.addJavaScriptHandler(
+          handlerName: 'onUserPromptSent',
+          callback: (args) {
+            debugPrint('[AI Tab $tabIndex] JS onUserPromptSent received!');
+            _aiIsWorking = true;
+            _aiNotified = false;
+            _aiLastActivityTime = DateTime.now();
+            _nativeBubbleService.startForegroundWatcher(title: tab.session.title);
+            _nativeBubbleService.updateBubbleStatus('thinking');
+          },
+        );
       },
       onLoadStart: (controller, url) {
         if (!mounted) return;
@@ -1449,43 +1504,61 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
         let lastTextLength = 0;
         let lastActivityTime = Date.now();
         let notified = true;
+        let lastInputValLength = 0;
 
         function getAllText() {
           return document.body ? (document.body.innerText || '') : '';
         }
 
-        function isAIGenerating() {
-          // 1. Kiểm tra các nút Stop / Cancel / Dừng / Abort
-          const stopKeywords = ['stop', 'cancel', 'dừng', 'hủy', 'abort', 'pause'];
-          const buttons = document.querySelectorAll('button, [role="button"], a');
+        function checkTree(root) {
+          const stopKeywords = ['stop', 'cancel', 'dừng', 'hủy', 'abort', 'pause', 'interrupt', 'terminate', 'halt'];
+          const buttons = root.querySelectorAll('button, [role="button"], a, div[tabindex]');
           for (let i = 0; i < buttons.length; i++) {
             const b = buttons[i];
             const aria = (b.getAttribute('aria-label') || '').toLowerCase();
             const title = (b.getAttribute('title') || '').toLowerCase();
             const text = (b.innerText || '').toLowerCase().trim();
+            const cls = (b.className || '').toString().toLowerCase();
             for (let k = 0; k < stopKeywords.length; k++) {
               const kw = stopKeywords[k];
-              if (aria.includes(kw) || title.includes(kw) || text === kw) {
+              if (aria.includes(kw) || title.includes(kw) || text === kw || cls.includes(kw)) {
                 return true;
               }
             }
           }
-
-          // 2. Icon dạng Stop / Pause (Material Icons, Google Symbols, SVG)
-          const icons = document.querySelectorAll('mat-icon, .google-symbols, i, svg');
+          const icons = root.querySelectorAll('mat-icon, .google-symbols, i, svg, [class*="codicon"]');
           for (let j = 0; j < icons.length; j++) {
-            const t = (icons[j].innerText || '').toLowerCase().trim();
-            if (t === 'stop' || t === 'pause' || t === 'stop_circle' || t === 'cancel') {
+            const el = icons[j];
+            const t = (el.innerText || '').toLowerCase().trim();
+            const cls = (el.className || '').toString().toLowerCase();
+            if (t === 'stop' || t === 'pause' || t === 'stop_circle' || t === 'cancel' ||
+                cls.includes('stop') || cls.includes('pause') || cls.includes('codicon-debug-stop') || cls.includes('codicon-stop')) {
               return true;
             }
           }
-
-          // 3. Loading spinner, progress bar, typing dots, streaming cursor
-          if (document.querySelector('[aria-busy="true"], mat-progress-bar, mat-spinner, .mat-mdc-progress-bar, .loading, .spinner, .typing, .streaming, [data-is-generating="true"], .cursor, .blinking-cursor, [class*="generating"], [class*="streaming"]')) {
+          if (root.querySelector(
+            '[aria-busy="true"], mat-progress-bar, mat-spinner, .mat-mdc-progress-bar, ' +
+            'mwc-circular-progress, [data-is-generating="true"], [data-status="generating"], ' +
+            '.loading, .spinner, .typing, .streaming, .cursor, .blinking-cursor, ' +
+            '[class*="generating"], [class*="streaming"], [class*="thinking"], [class*="in-progress"]'
+          )) {
             return true;
           }
-
           return false;
+        }
+
+        function isAIGenerating() {
+          let gen = checkTree(document);
+          if (!gen) {
+            const all = document.querySelectorAll('*');
+            for (let i = 0; i < all.length; i++) {
+              if (all[i].shadowRoot && checkTree(all[i].shadowRoot)) {
+                gen = true;
+                break;
+              }
+            }
+          }
+          return gen;
         }
 
         function extractPreview() {
@@ -1494,6 +1567,7 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
               '.model-response, [data-role="model"], ' +
               '.response-text, .message-content, ' +
               '[class*="response"]:last-child, [class*="message"]:last-child, ' +
+              '[class*="agent"]:last-child, [class*="assistant"]:last-child, ' +
               'pre, code, p'
             );
             if (candidates.length > 0) {
@@ -1518,34 +1592,58 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
           lastTextLength = getAllText().length;
           lastActivityTime = Date.now();
           console.log('[AG Remote] User sent prompt. Tracking AI output...');
+          if (window.flutter_inappwebview) {
+            window.flutter_inappwebview.callHandler('onUserPromptSent');
+          }
         }
 
         window.__agTriggerUserSent = triggerUserSent;
 
-        // Bắt sự kiện khi user gõ Enter (cả physical lẫn virtual keyboard)
+        // 1. Bắt sự kiện khi user gõ Enter
         document.addEventListener('keydown', function(e) {
           if ((e.key === 'Enter' || e.keyCode === 13 || e.which === 13) && !e.shiftKey) {
             triggerUserSent();
           }
         }, true);
 
-        // Bắt sự kiện form submit
+        // 2. Bắt sự kiện bàn phím ảo (Gboard / Samsung Keyboard insertLineBreak)
+        document.addEventListener('beforeinput', function(e) {
+          if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') {
+            triggerUserSent();
+          }
+        }, true);
+
+        // 3. Bắt sự kiện ô nhập bị xóa rỗng sau khi có text (User vừa submit)
+        document.addEventListener('input', function(e) {
+          const target = e.target;
+          if (target && (target.tagName === 'TEXTAREA' || target.isContentEditable || target.tagName === 'INPUT')) {
+            const val = (target.value || target.innerText || '').trim();
+            const curLen = val.length;
+            if (lastInputValLength >= 2 && curLen === 0) {
+              triggerUserSent();
+            }
+            lastInputValLength = curLen;
+          }
+        }, true);
+
+        // 4. Bắt sự kiện form submit
         document.addEventListener('submit', function() {
           triggerUserSent();
         }, true);
 
-        // Bắt sự kiện click bất kỳ nút nào liên quan tới gửi tin nhắn
+        // 5. Bắt sự kiện click bất kỳ nút nào liên quan tới gửi câu lệnh
         document.addEventListener('click', function(e) {
-          const btn = e.target.closest('button, [role="button"], a, mat-icon, svg');
+          const btn = e.target.closest('button, [role="button"], a, mat-icon, svg, [class*="send"], [class*="submit"], [class*="action"]');
           if (btn) {
             const label = (btn.getAttribute('aria-label') || '').toLowerCase();
             const title = (btn.getAttribute('title') || '').toLowerCase();
             const text = (btn.innerText || '').toLowerCase();
             const cls = (btn.className || '').toString().toLowerCase();
             if (label.includes('send') || label.includes('gửi') || label.includes('submit') || label.includes('run') ||
-                title.includes('send') || title.includes('gửi') ||
-                text.includes('send') || text.includes('gửi') ||
-                cls.includes('send') || cls.includes('submit') ||
+                label.includes('generate') || label.includes('execute') || label.includes('prompt') ||
+                title.includes('send') || title.includes('gửi') || title.includes('run') || title.includes('execute') ||
+                text.includes('send') || text.includes('gửi') || text.includes('chạy') ||
+                cls.includes('send') || cls.includes('submit') || cls.includes('run') || cls.includes('codicon-send') ||
                 btn.type === 'submit') {
               triggerUserSent();
             }
@@ -1556,15 +1654,19 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
           const generating = isAIGenerating();
           const currentLen = getAllText().length;
 
+          if (lastTextLength === 0 && currentLen > 0) {
+            lastTextLength = currentLen;
+          }
+
           if (generating) {
             isWorking = true;
             notified = false;
             lastActivityTime = Date.now();
-          } else if (currentLen !== lastTextLength) {
+          } else if (currentLen > lastTextLength + 8) {
             // Text đang stream / tăng độ dài
-            if (isWorking) {
-              lastActivityTime = Date.now();
-            }
+            isWorking = true;
+            notified = false;
+            lastActivityTime = Date.now();
             lastTextLength = currentLen;
           }
 
@@ -1574,6 +1676,7 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
             if (idleTime >= 1500) {
               isWorking = false;
               notified = true;
+              lastTextLength = currentLen;
               const preview = extractPreview();
               console.log('[AG Remote] AI completed! Firing onAIResponseDone');
               if (window.flutter_inappwebview) {
