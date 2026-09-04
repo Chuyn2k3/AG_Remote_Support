@@ -7,6 +7,14 @@
     <uses-permission android:name="android.permission.BLUETOOTH"/>
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"/>
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
+    <!-- Notification permission (Android 13+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Floating bubble overlay over other apps -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+    <!-- Foreground service for persistent bubble -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
     <application
         android:label="AG Remote Support"
@@ -39,6 +47,17 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- Native Floating Chat Head Service -->
+        <service
+            android:name=".FloatingHeadService"
+            android:exported="false" />
+
+        <!-- Background Foreground Watcher Service keeping WebView alive -->
+        <service
+            android:name=".ForegroundWatcherService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
