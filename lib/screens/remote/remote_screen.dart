@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-
+import 'dart:ui';
 import 'dart:collection';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -285,8 +285,8 @@ class _TabState {
   final RemoteSession session;
   final GlobalKey webViewKey = GlobalKey();
   InAppWebViewController? controller;
-  final ValueNotifier<double> progressNotifier = ValueNotifier<double>(0.0);
-  final ValueNotifier<bool> loadingNotifier = ValueNotifier<bool>(true);
+  double progress = 0.0;
+  bool isLoading = true;
   String? errorMessage;
   bool isDisconnected;
 
@@ -294,17 +294,6 @@ class _TabState {
     required this.session,
     this.isDisconnected = false,
   });
-
-  double get progress => progressNotifier.value;
-  set progress(double v) => progressNotifier.value = v;
-
-  bool get isLoading => loadingNotifier.value;
-  set isLoading(bool v) => loadingNotifier.value = v;
-
-  void dispose() {
-    progressNotifier.dispose();
-    loadingNotifier.dispose();
-  }
 }
 
 class RemoteScreen extends StatefulWidget {
@@ -331,6 +320,10 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
   // Convenience getters trỏ vào tab đang active
   _TabState get _activeTab => _tabs[_activeTabIndex];
   InAppWebViewController? get _webViewController => _activeTab.controller;
+  double get _progress => _activeTab.progress;
+  set _progress(double v) => _activeTab.progress = v;
+  bool get _isLoading => _activeTab.isLoading;
+  set _isLoading(bool v) => _activeTab.isLoading = v;
   String? get _errorMessage => _activeTab.errorMessage;
   set _errorMessage(String? v) => _activeTab.errorMessage = v;
   bool get _isInstanceDisconnected => _activeTab.isDisconnected;
@@ -338,17 +331,21 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
 
   // ── Other state ──────────────────────────────────────────────────────────
   bool _isWakelock = false;
+  Timer? _disconnectCheckTimer;
   StorageService? _storageService;
   final SpeechService _speechService = SpeechService();
   final NotificationService _notificationService = NotificationService();
   final NativeBubbleService _nativeBubbleService = NativeBubbleService();
   bool _bubbleActive = false;
 
-  // ── AI Response Watcher state (Event-Driven via Console & UserScript) ────
+  // ── AI Response Watcher state (Dart Poller & Console Event Bus) ──────────
+  Timer? _aiResponsePollingTimer;
   Timer? _aiStreamDebounceTimer;
   bool _aiIsWorking = false;
   bool _hasStartedStreaming = false;
   bool _aiNotified = true;
+  int _aiLastTextLength = 0;
+  DateTime? _aiLastActivityTime;
   String _aiLastPreview = '';
 
   // Custom User-Agent giả lập Chrome Mobile chuẩn để vượt qua Google OAuth 403 disallowed_useragent
@@ -369,6 +366,8 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
     _storageService = widget.storageService;
     _initStorageIfNeeded();
     _initWakelock();
+    _startDisconnectPolling();
+    _startAIResponsePolling();
     // MẶC ĐỊNH LÀ MÀN HÌNH DỌC (Không tự động/mặc định xoay ngang)
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
@@ -394,6 +393,12 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
 
   Future<void> _initStorageIfNeeded() async {
     _storageService ??= await StorageService.init();
+  }
+
+  void _startDisconnectPolling() {
+    _disconnectCheckTimer = Timer.periodic(const Duration(milliseconds: 2500), (_) {
+      _checkInstanceDisconnection();
+    });
   }
 
   Future<void> _checkInstanceDisconnection() async {
@@ -464,11 +469,140 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
     });
   }
 
+  void _startAIResponsePolling() {
+    _aiResponsePollingTimer?.cancel();
+    _aiResponsePollingTimer = Timer.periodic(const Duration(milliseconds: 1500), (_) {
+      _pollAIResponseStatus();
+    });
+  }
+
+  Future<void> _pollAIResponseStatus() async {
+    if (_webViewController == null || !mounted) return;
+
+    try {
+      final dynamic result = await _webViewController?.evaluateJavascript(source: '''
+        (function() {
+          try {
+            function checkTree(root) {
+              const stopKeywords = ['stop', 'cancel', 'dừng', 'hủy', 'abort', 'pause', 'interrupt', 'terminate', 'halt'];
+              const buttons = root.querySelectorAll('button, [role="button"], a, div[tabindex]');
+              for (let i = 0; i < buttons.length; i++) {
+                const b = buttons[i];
+                const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+                const title = (b.getAttribute('title') || '').toLowerCase();
+                const text = (b.innerText || '').toLowerCase().trim();
+                const cls = (b.className || '').toString().toLowerCase();
+                for (let k = 0; k < stopKeywords.length; k++) {
+                  const kw = stopKeywords[k];
+                  if (aria.includes(kw) || title.includes(kw) || text === kw || cls.includes(kw)) {
+                    return true;
+                  }
+                }
+              }
+              const icons = root.querySelectorAll('mat-icon, .google-symbols, i, svg, [class*="codicon"]');
+              for (let j = 0; j < icons.length; j++) {
+                const el = icons[j];
+                const t = (el.innerText || '').toLowerCase().trim();
+                const cls = (el.className || '').toString().toLowerCase();
+                if (t === 'stop' || t === 'pause' || t === 'stop_circle' || t === 'cancel' ||
+                    cls.includes('stop') || cls.includes('pause') || cls.includes('codicon-debug-stop') || cls.includes('codicon-stop')) {
+                  return true;
+                }
+              }
+              if (root.querySelector(
+                '[aria-busy="true"], mat-progress-bar, mat-spinner, .mat-mdc-progress-bar, ' +
+                'mwc-circular-progress, [data-is-generating="true"], [data-status="generating"], ' +
+                '.loading, .spinner, .typing, .streaming, .cursor, .blinking-cursor, ' +
+                '[class*="generating"], [class*="streaming"], [class*="thinking"], [class*="in-progress"]'
+              )) {
+                return true;
+              }
+              return false;
+            }
+
+            let isGenerating = checkTree(document);
+            if (!isGenerating) {
+              const all = document.querySelectorAll('*');
+              for (let i = 0; i < all.length; i++) {
+                if (all[i].shadowRoot && checkTree(all[i].shadowRoot)) {
+                  isGenerating = true;
+                  break;
+                }
+              }
+            }
+
+            const bodyText = document.body ? (document.body.innerText || '') : '';
+            const textLen = bodyText.length;
+
+            let preview = '';
+            const candidates = document.querySelectorAll(
+              '.model-response, [data-role="model"], .response-text, .message-content, ' +
+              '[class*="response"], [class*="message"], [class*="agent"], [class*="assistant"], ' +
+              '.chat-message, pre, code, p'
+            );
+            if (candidates.length > 0) {
+              for (let i = candidates.length - 1; i >= 0; i--) {
+                const t = (candidates[i].innerText || '').trim();
+                if (t.length > 10) {
+                  preview = t.substring(0, 150);
+                  break;
+                }
+              }
+            }
+            if (!preview && bodyText.length > 0) {
+              const trimmed = bodyText.trim();
+              preview = trimmed.length > 150 ? trimmed.substring(trimmed.length - 150) : trimmed;
+            }
+
+            const userRecentlySent = window.__agUserRecentlySent === true;
+            if (userRecentlySent) {
+              window.__agUserRecentlySent = false;
+            }
+
+            return JSON.stringify({
+              isGenerating: isGenerating,
+              textLen: textLen,
+              preview: preview,
+              userRecentlySent: userRecentlySent
+            });
+          } catch(e) {
+            return null;
+          }
+        })()
+      ''');
+
+      if (result == null || !mounted) return;
+      Map<String, dynamic> data;
+      if (result is Map) {
+        data = Map<String, dynamic>.from(result);
+      } else {
+        final str = result.toString();
+        if (str.isEmpty || str == 'null') return;
+        data = jsonDecode(str) as Map<String, dynamic>;
+      }
+
+      final bool isGenerating = data['isGenerating'] == true;
+      final int textLen = (data['textLen'] as num?)?.toInt() ?? 0;
+      final String preview = data['preview']?.toString() ?? '';
+      final bool userRecentlySent = data['userRecentlySent'] == true;
+
+      _handleAIDetectionTick(
+        isGenerating: isGenerating,
+        textLen: textLen,
+        preview: preview,
+        userRecentlySent: userRecentlySent,
+      );
+    } catch (e) {
+      debugPrint('[RemoteScreen] _pollAIResponseStatus error: $e');
+    }
+  }
+
   void _onUserPromptSubmitted(String sessionTitle, [String? reason]) {
     debugPrint('[AI Monitor] User Prompt Submitted: $reason');
     _aiIsWorking = true;
     _hasStartedStreaming = false; // CHƯA nhận được token, tuyệt đối KHÔNG được báo hoàn thành!
     _aiNotified = false;
+    _aiLastActivityTime = DateTime.now();
     _aiStreamDebounceTimer?.cancel(); // Hủy mọi debounce timer trước đó
     _aiStreamDebounceTimer = null;
 
@@ -482,6 +616,7 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
     _aiIsWorking = true;
     _hasStartedStreaming = true; // ĐÃ bắt đầu nhận token / sinh câu trả lời!
     _aiNotified = false;
+    _aiLastActivityTime = DateTime.now();
     _resetStreamDebounceTimer(sessionTitle);
     if (mounted) setState(() {});
   }
@@ -584,7 +719,68 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
     // 7. Khi AI đang sinh, các log hoạt động sẽ reset debounce timer để không kết thúc sớm
     if (_hasStartedStreaming && !_aiNotified) {
       if (!msg.contains('ResizeObserver') && !msg.contains('TouchIcon') && !msg.contains('ConfigService') && !msg.contains('GPUAUX')) {
+        _aiLastActivityTime = DateTime.now();
         _resetStreamDebounceTimer(sessionTitle);
+      }
+    }
+  }
+
+  void _handleAIDetectionTick({
+    required bool isGenerating,
+    required int textLen,
+    required String preview,
+    required bool userRecentlySent,
+  }) {
+    final sessionTitle = _activeTab.session.title;
+
+    // 1. Khởi tạo baseline ban đầu nếu chưa có
+    if (_aiLastTextLength == 0 && textLen > 0) {
+      _aiLastTextLength = textLen;
+      debugPrint('[AI Monitor] Baseline text length initialized: $textLen');
+      return;
+    }
+
+    // 2. Người dùng vừa gửi câu lệnh
+    if (userRecentlySent) {
+      _aiLastTextLength = textLen;
+      _onUserPromptSubmitted(sessionTitle, 'User sent prompt detected by Dart poller');
+      return;
+    }
+
+    // 3. AI đang có chỉ thị sinh (Stop button, spinner, cursor)
+    if (isGenerating) {
+      _aiLastTextLength = textLen;
+      if (preview.isNotEmpty) _aiLastPreview = preview;
+      _onAITokenStreaming(sessionTitle, 'AI generating indicator detected by Dart poller');
+      return;
+    }
+
+    // 4. Nếu text dài ra > 8 ký tự -> Có nội dung mới đang stream hoặc message mới
+    if (textLen > _aiLastTextLength + 8) {
+      _aiLastTextLength = textLen;
+      if (preview.isNotEmpty) _aiLastPreview = preview;
+      _onAITokenStreaming(sessionTitle, 'Text growth (+${textLen - _aiLastTextLength} chars)');
+      return;
+    }
+
+    // 5. Nếu text giảm mạnh (> 50 ký tự), có thể trang bị reload hoặc clear chat
+    if (textLen < _aiLastTextLength - 50) {
+      _aiLastTextLength = textLen;
+      _aiIsWorking = false;
+      _hasStartedStreaming = false;
+      return;
+    }
+
+    // 6. Khi AI đã từng xử lý câu lệnh VÀ không còn sinh nữa VÀ text dừng thay đổi trong 2.0s
+    if (_hasStartedStreaming && !isGenerating && !_aiNotified) {
+      final lastTime = _aiLastActivityTime ?? DateTime.now();
+      final elapsed = DateTime.now().difference(lastTime).inMilliseconds;
+      if (elapsed >= 2000) {
+        _aiLastTextLength = textLen;
+        _onAICompleted(
+          sessionTitle,
+          _aiLastPreview.isNotEmpty ? _aiLastPreview : (preview.isNotEmpty ? preview : null),
+        );
       }
     }
   }
@@ -592,9 +788,8 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    for (final tab in _tabs) {
-      tab.dispose();
-    }
+    _disconnectCheckTimer?.cancel();
+    _aiResponsePollingTimer?.cancel();
     _aiStreamDebounceTimer?.cancel();
     _speechService.cancelListening();
     _nativeBubbleService.stopForegroundWatcher();
@@ -686,10 +881,10 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
   }
 
   void _retry() {
-    _activeTab.loadingNotifier.value = true;
-    _activeTab.progressNotifier.value = 0.0;
     setState(() {
       _errorMessage = null;
+      _isLoading = true;
+      _progress = 0;
       _isInstanceDisconnected = false;
     });
     _activeTab.session.isDisconnected = false;
@@ -955,20 +1150,18 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
           bottom: false,
           child: Column(
             children: [
-              // Tab bar (chỉ hiện khi có nhiều hơn 1 tab) - Render layer isolation
+              // Tab bar (chỉ hiện khi có nhiều hơn 1 tab)
               if (_tabs.length > 1)
-                RepaintBoundary(
-                  child: SessionTabBar(
-                    sessions: _tabs.map((t) => t.session).toList(),
-                    activeIndex: _activeTabIndex,
-                    onTabSelected: _switchTab,
-                    onTabClosed: _closeTab,
-                    onAddTab: _showAddTabSheet,
-                    isSplitScreen: _isSplitScreen,
-                    onToggleSplitScreen: _toggleSplitScreen,
-                    isLandscape: _isLandscape,
-                    onToggleOrientation: _toggleOrientation,
-                  ),
+                SessionTabBar(
+                  sessions: _tabs.map((t) => t.session).toList(),
+                  activeIndex: _activeTabIndex,
+                  onTabSelected: _switchTab,
+                  onTabClosed: _closeTab,
+                  onAddTab: _showAddTabSheet,
+                  isSplitScreen: _isSplitScreen,
+                  onToggleSplitScreen: _toggleSplitScreen,
+                  isLandscape: _isLandscape,
+                  onToggleOrientation: _toggleOrientation,
                 ),
               Expanded(
                 child: Stack(
@@ -977,247 +1170,232 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
               Positioned.fill(
                 child: _isSplitScreen && _tabs.length >= 2
                     ? _buildSplitView(isDark, primaryColor)
-                    : (_tabs.length == 1
-                        ? _buildTabWebView(0)
-                        : IndexedStack(
-                            index: _activeTabIndex,
-                            children: List.generate(_tabs.length, (i) => _buildTabWebView(i)),
-                          )),
-              ),
-
-              // Thin 2px Linear Progress Indicator at top (Apple Blue) - Scoped with ValueListenableBuilder
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: ValueListenableBuilder<double>(
-                  valueListenable: _activeTab.progressNotifier,
-                  builder: (context, progress, _) {
-                    if (progress >= 1.0) return const SizedBox.shrink();
-                    return LinearProgressIndicator(
-                      value: progress,
-                      backgroundColor: Colors.transparent,
-                      valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
-                      minHeight: 2.0,
-                    );
-                  },
-                ),
-              ),
-
-              // Loading Spinner nếu trang đang khởi động lần đầu - Scoped with ValueListenableBuilder
-              ValueListenableBuilder<bool>(
-                valueListenable: _activeTab.loadingNotifier,
-                builder: (context, isLoading, _) {
-                  if (!isLoading) return const SizedBox.shrink();
-                  return ValueListenableBuilder<double>(
-                    valueListenable: _activeTab.progressNotifier,
-                    builder: (context, progress, _) {
-                      if (progress >= 0.2) return const SizedBox.shrink();
-                      return Center(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
-                          decoration: BoxDecoration(
-                            // Dùng màu đặc thay BackdropFilter — BackdropFilter không đọc được pixel SurfaceView trên Android
-                            color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.18),
-                                blurRadius: 20,
-                                offset: const Offset(0, 6),
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              SizedBox(
-                                width: 28,
-                                height: 28,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.5,
-                                  valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                'Đang kết nối tới Antigravity Desktop...',
-                                style: TextStyle(
-                                  color: textSecondary,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  );
-                },
-              ),
-
-              // Error banner if loading completely failed (Solid — BackdropFilter breaks Android PlatformView)
-              if (_errorMessage != null)
-                Center(
-                  child: Container(
-                    margin: const EdgeInsets.all(24),
-                    padding: const EdgeInsets.all(22),
-                    decoration: BoxDecoration(
-                      color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(
-                        color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                    : IndexedStack(
+                        index: _activeTabIndex,
+                        children: List.generate(_tabs.length, (i) => _buildTabWebView(i)),
                       ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.18),
-                          blurRadius: 24,
-                          offset: const Offset(0, 8),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.wifi_off_rounded, size: 36, color: textSecondary),
-                        const SizedBox(height: 12),
-                        Text(
-                          'Không thể kết nối với Desktop',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: textPrimary,
+              ),
+
+              // Thin 2px Linear Progress Indicator at top (Apple Blue)
+              if (_progress < 1.0)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: LinearProgressIndicator(
+                    value: _progress,
+                    backgroundColor: Colors.transparent,
+                    valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+                    minHeight: 2.0,
+                  ),
+                ),
+
+              // Loading Spinner nếu trang đang khởi động lần đầu
+              if (_isLoading && _progress < 0.2)
+                Center(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+                        decoration: BoxDecoration(
+                          color: (isDark ? AppColors.darkSurface : AppColors.lightSurface).withOpacity(0.9),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
                           ),
                         ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'Hãy đảm bảo Antigravity 2.0 đang chạy trên máy tính của bạn.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: textSecondary, fontSize: 13),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: 28,
+                              height: 28,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'Đang kết nối tới Antigravity Desktop...',
+                              style: TextStyle(
+                                color: textSecondary,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 18),
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: primaryColor,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          ),
-                          icon: const Icon(Icons.refresh_rounded, size: 18),
-                          label: const Text('Thử lại', style: TextStyle(fontWeight: FontWeight.w600)),
-                          onPressed: _retry,
-                        ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
 
-              // Disconnected Banner/Overlay (Solid — BackdropFilter breaks Android PlatformView)
-              if (_isInstanceDisconnected)
+              // Error banner if loading completely failed (Frosted style, no harsh red)
+              if (_errorMessage != null)
                 Center(
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 24),
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
-                    decoration: BoxDecoration(
-                      color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
-                      borderRadius: BorderRadius.circular(22),
-                      border: Border.all(
-                        color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(isDark ? 0.35 : 0.12),
-                          blurRadius: 30,
-                          offset: const Offset(0, 10),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 58,
-                          height: 58,
-                          decoration: BoxDecoration(
-                            color: (isDark ? AppColors.darkPrimaryLight : AppColors.lightPrimaryLight),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            Icons.power_off_rounded,
-                            size: 28,
-                            color: primaryColor,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(18),
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                      child: Container(
+                        margin: const EdgeInsets.all(24),
+                        padding: const EdgeInsets.all(22),
+                        decoration: BoxDecoration(
+                          color: (isDark ? AppColors.darkSurface : AppColors.lightSurface).withOpacity(0.92),
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(
+                            color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
                           ),
                         ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Máy tính đã ngắt kết nối',
-                          style: TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w700,
-                            color: textPrimary,
-                            letterSpacing: -0.3,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Antigravity 2.0 trên máy tính đã tắt hoặc mất kết nối mạng. Hãy mở lại Antigravity trên máy tính để tiếp tục làm việc.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: textSecondary,
-                            fontSize: 13,
-                            height: 1.4,
-                          ),
-                        ),
-                        const SizedBox(height: 22),
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: primaryColor,
-                              foregroundColor: Colors.white,
-                              elevation: 0,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            icon: const Icon(Icons.refresh_rounded, size: 18),
-                            label: const Text(
-                              'Thử kết nối lại',
-                              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                            ),
-                            onPressed: _retry,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        SizedBox(
-                          width: double.infinity,
-                          child: OutlinedButton(
-                            style: OutlinedButton.styleFrom(
-                              side: BorderSide(
-                                color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
-                              ),
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            onPressed: () => Navigator.pop(context),
-                            child: Text(
-                              'Quay lại Hub thiết bị',
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.wifi_off_rounded, size: 36, color: textSecondary),
+                            const SizedBox(height: 12),
+                            Text(
+                              'Không thể kết nối với Desktop',
                               style: TextStyle(
-                                fontSize: 14,
+                                fontSize: 16,
                                 fontWeight: FontWeight.w600,
                                 color: textPrimary,
                               ),
                             ),
-                          ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Hãy đảm bảo Antigravity 2.0 đang chạy trên máy tính của bạn.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: textSecondary, fontSize: 13),
+                            ),
+                            const SizedBox(height: 18),
+                            ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: primaryColor,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                              icon: const Icon(Icons.refresh_rounded, size: 18),
+                              label: const Text('Thử lại', style: TextStyle(fontWeight: FontWeight.w600)),
+                              onPressed: _retry,
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
+                    ),
+                  ),
+                ),
+
+              // Disconnected Banner/Overlay (Apple Frosted Glass HIG)
+              if (_isInstanceDisconnected)
+                Center(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(22),
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 24),
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+                        decoration: BoxDecoration(
+                          color: (isDark ? AppColors.darkSurface : AppColors.lightSurface).withOpacity(0.92),
+                          borderRadius: BorderRadius.circular(22),
+                          border: Border.all(
+                            color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(isDark ? 0.35 : 0.08),
+                              blurRadius: 30,
+                              offset: const Offset(0, 10),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 58,
+                              height: 58,
+                              decoration: BoxDecoration(
+                                color: (isDark ? AppColors.darkPrimaryLight : AppColors.lightPrimaryLight),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                Icons.power_off_rounded,
+                                size: 28,
+                                color: primaryColor,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Máy tính đã ngắt kết nối',
+                              style: TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w700,
+                                color: textPrimary,
+                                letterSpacing: -0.3,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Antigravity 2.0 trên máy tính đã tắt hoặc mất kết nối mạng. Hãy mở lại Antigravity trên máy tính để tiếp tục làm việc.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: textSecondary,
+                                fontSize: 13,
+                                height: 1.4,
+                              ),
+                            ),
+                            const SizedBox(height: 22),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: primaryColor,
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                icon: const Icon(Icons.refresh_rounded, size: 18),
+                                label: const Text(
+                                  'Thử kết nối lại',
+                                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                                ),
+                                onPressed: _retry,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton(
+                                style: OutlinedButton.styleFrom(
+                                  side: BorderSide(
+                                    color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                                  ),
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                onPressed: () => Navigator.pop(context),
+                                child: Text(
+                                  'Quay lại Hub thiết bị',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: textPrimary,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -1277,17 +1455,14 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
         databaseEnabled: true,
         thirdPartyCookiesEnabled: true,
         cacheEnabled: true,
-        cacheMode: CacheMode.LOAD_DEFAULT,
-        clearCache: false,
         supportMultipleWindows: false,
         javaScriptCanOpenWindowsAutomatically: false,
-        mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
-        useHybridComposition: true, // SurfaceView chuẩn — MIUI GuiExtAux xử lý đúng, không gây Null ANativeBuffer
-        transparentBackground: false, // Nền đặc tránh lộ buffer đen của SurfaceView native
+        mixedContentMode: MixedContentMode.MIXED_CONTENT_NEVER_ALLOW,
+        useHybridComposition: true,
         requestedWithHeaderOriginAllowList: <String>{},
         allowFileAccessFromFileURLs: false,
         allowUniversalAccessFromFileURLs: false,
-        allowContentAccess: true,
+        allowContentAccess: false,
         allowBackgroundAudioPlaying: true,
       ),
       onWebViewCreated: (controller) {
@@ -1326,16 +1501,18 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
         _handleConsoleMessage(tabIndex, tab, consoleMessage.message);
       },
       onLoadStart: (controller, url) {
-        tab.loadingNotifier.value = true;
-        if (tab.errorMessage != null && mounted) {
-          setState(() {
-            tab.errorMessage = null;
-          });
-        }
+        if (!mounted) return;
+        setState(() {
+          tab.isLoading = true;
+          tab.errorMessage = null;
+        });
       },
       onLoadStop: (controller, url) {
-        tab.loadingNotifier.value = false;
-        tab.progressNotifier.value = 1.0;
+        if (!mounted) return;
+        setState(() {
+          tab.isLoading = false;
+          tab.progress = 1.0;
+        });
         Future.delayed(const Duration(milliseconds: 600), () {
           if (mounted && tabIndex == _activeTabIndex) {
             _checkInstanceDisconnection();
@@ -1380,11 +1557,11 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
         return NavigationActionPolicy.ALLOW;
       },
       onProgressChanged: (controller, progress) {
-        final double val = progress / 100.0;
-        tab.progressNotifier.value = val;
-        if (progress >= 95) {
-          tab.loadingNotifier.value = false;
-        }
+        if (!mounted) return;
+        setState(() {
+          tab.progress = progress / 100.0;
+          if (progress >= 95) tab.isLoading = false;
+        });
       },
       onReceivedError: (controller, request, error) {
         if (error.description.contains('net::ERR_ABORTED')) return;
@@ -1392,7 +1569,6 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
         setState(() {
           tab.errorMessage = 'Không thể tải trang: ${error.description}';
         });
-        _checkInstanceDisconnection();
       },
       onReceivedHttpError: (controller, request, errorResponse) {
         debugPrint('WebView HTTP Error: ${errorResponse.statusCode}');
@@ -1413,9 +1589,8 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
   /// Đóng tab tại index cho trước
   void _closeTab(int index) {
     if (_tabs.length <= 1) return;
-    final closedTab = _tabs.removeAt(index);
-    closedTab.dispose();
     setState(() {
+      _tabs.removeAt(index);
       if (_activeTabIndex >= _tabs.length) {
         _activeTabIndex = _tabs.length - 1;
       }

@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -151,19 +152,21 @@ class _GitActionsModalState extends State<GitActionsModal> with SingleTickerProv
 
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      child: Container(
-        height: MediaQuery.of(context).size.height * 0.72,
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom,
-        ),
-        decoration: BoxDecoration(
-          color: surfaceColor,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          border: Border.all(
-            color: borderColor.withOpacity(0.6),
-            width: 0.8,
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+        child: Container(
+          height: MediaQuery.of(context).size.height * 0.72,
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
           ),
-        ),
+          decoration: BoxDecoration(
+            color: surfaceColor.withOpacity(0.95),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            border: Border.all(
+              color: borderColor.withOpacity(0.6),
+              width: 0.8,
+            ),
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -283,8 +286,9 @@ class _GitActionsModalState extends State<GitActionsModal> with SingleTickerProv
             ],
           ),
         ),
-      );
-    }
+      ),
+    );
+  }
 
   Widget _buildPresetList(List<GitPreset> presets, bool isDark) {
     final textPrimary = isDark ? Colors.white : Colors.black;

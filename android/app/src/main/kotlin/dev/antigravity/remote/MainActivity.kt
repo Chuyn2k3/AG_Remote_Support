@@ -5,15 +5,10 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterFragmentActivity
-import io.flutter.embedding.android.RenderMode
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterFragmentActivity() {
-
-    override fun getRenderMode(): RenderMode {
-        return RenderMode.texture
-    }
 
     companion object {
         const val LIFECYCLE_CHANNEL = "dev.antigravity.remote/app_lifecycle"
