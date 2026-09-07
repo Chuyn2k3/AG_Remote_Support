@@ -1281,7 +1281,7 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
         javaScriptCanOpenWindowsAutomatically: false,
         mixedContentMode: MixedContentMode.MIXED_CONTENT_NEVER_ALLOW,
         useHybridComposition: true, // SurfaceView chuẩn — MIUI GuiExtAux xử lý đúng, không gây Null ANativeBuffer
-        transparentBackground: true, // Tránh nháy phông trắng
+        transparentBackground: false, // Nền đặc tránh lộ buffer đen của SurfaceView native
         requestedWithHeaderOriginAllowList: <String>{},
         allowFileAccessFromFileURLs: false,
         allowUniversalAccessFromFileURLs: false,
