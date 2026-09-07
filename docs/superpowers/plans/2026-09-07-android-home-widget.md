@@ -21,7 +21,7 @@
 - Create: `android/app/src/main/res/layout/widget_agent_feed.xml`
 - Create: `android/app/src/main/res/xml/widget_agent_feed_info.xml`
 
-- [ ] **Step 1: Tạo các drawable bo góc và chấm trạng thái**
+- [x] **Step 1: Tạo các drawable bo góc và chấm trạng thái**
 Tạo file `android/app/src/main/res/drawable/widget_container_bg.xml`:
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
@@ -75,7 +75,7 @@ Tạo file `android/app/src/main/res/drawable/widget_status_dot_red.xml`:
 </shape>
 ```
 
-- [ ] **Step 2: Tạo layout XML cho RemoteViews của Widget**
+- [x] **Step 2: Tạo layout XML cho RemoteViews của Widget**
 Tạo file `android/app/src/main/res/layout/widget_agent_feed.xml`:
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
@@ -180,7 +180,7 @@ Tạo file `android/app/src/main/res/layout/widget_agent_feed.xml`:
 </LinearLayout>
 ```
 
-- [ ] **Step 3: Tạo AppWidgetProviderInfo XML metadata**
+- [x] **Step 3: Tạo AppWidgetProviderInfo XML metadata**
 Tạo file `android/app/src/main/res/xml/widget_agent_feed_info.xml`:
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
@@ -196,7 +196,7 @@ Tạo file `android/app/src/main/res/xml/widget_agent_feed_info.xml`:
 </appwidget-provider>
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 ```bash
 git add android/app/src/main/res/drawable/ android/app/src/main/res/layout/ android/app/src/main/res/xml/
 git commit -m "feat(widget): add Android AppWidget XML layouts and glassmorphism drawables"
@@ -212,7 +212,7 @@ git commit -m "feat(widget): add Android AppWidget XML layouts and glassmorphism
 - Modify: `android/app/src/main/kotlin/dev/antigravity/remote/MainActivity.kt`
 - Modify: `android/app/src/main/AndroidManifest.xml`
 
-- [ ] **Step 1: Viết `AntigravityWidgetProvider.kt`**
+- [x] **Step 1: Viết `AntigravityWidgetProvider.kt`**
 Tạo file `android/app/src/main/kotlin/dev/antigravity/remote/AntigravityWidgetProvider.kt`:
 ```kotlin
 package dev.antigravity.remote
@@ -310,7 +310,7 @@ class AntigravityWidgetProvider : AppWidgetProvider() {
 }
 ```
 
-- [ ] **Step 2: Viết `WidgetActionReceiver.kt`**
+- [x] **Step 2: Viết `WidgetActionReceiver.kt`**
 Tạo file `android/app/src/main/kotlin/dev/antigravity/remote/WidgetActionReceiver.kt`:
 ```kotlin
 package dev.antigravity.remote
@@ -354,7 +354,7 @@ class WidgetActionReceiver : BroadcastReceiver() {
 }
 ```
 
-- [ ] **Step 3: Cập nhật `MainActivity.kt` thêm `WIDGET_CHANNEL`**
+- [x] **Step 3: Cập nhật `MainActivity.kt` thêm `WIDGET_CHANNEL`**
 Trong `android/app/src/main/kotlin/dev/antigravity/remote/MainActivity.kt`:
 Thêm channel:
 ```kotlin
@@ -405,7 +405,7 @@ Và trong `configureFlutterEngine`:
         }
 ```
 
-- [ ] **Step 4: Khai báo Receiver và AppWidgetProvider trong `AndroidManifest.xml`**
+- [x] **Step 4: Khai báo Receiver và AppWidgetProvider trong `AndroidManifest.xml`**
 Trong `android/app/src/main/AndroidManifest.xml`, thêm vào trong `<application>`:
 ```xml
         <!-- Android Home Screen Widget Provider -->
@@ -430,7 +430,7 @@ Trong `android/app/src/main/AndroidManifest.xml`, thêm vào trong `<application
         </receiver>
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 ```bash
 git add android/app/src/main/kotlin/ android/app/src/main/AndroidManifest.xml
 git commit -m "feat(widget): implement AntigravityWidgetProvider and WidgetActionReceiver"
@@ -444,7 +444,7 @@ git commit -m "feat(widget): implement AntigravityWidgetProvider and WidgetActio
 - Create: `lib/core/services/home_widget_service.dart`
 - Create: `test/home_widget_service_test.dart`
 
-- [ ] **Step 1: Viết failing unit test cho `HomeWidgetService`**
+- [x] **Step 1: Viết failing unit test cho `HomeWidgetService`**
 Tạo file `test/home_widget_service_test.dart`:
 ```dart
 import 'package:flutter/services.dart';
@@ -513,13 +513,13 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: Chạy test để xác nhận test fail**
+- [x] **Step 2: Chạy test để xác nhận test fail**
 ```bash
 flutter test test/home_widget_service_test.dart
 ```
 Expected: FAIL (file `home_widget_service.dart` does not exist).
 
-- [ ] **Step 3: Viết triển khai `HomeWidgetService`**
+- [x] **Step 3: Viết triển khai `HomeWidgetService`**
 Tạo file `lib/core/services/home_widget_service.dart`:
 ```dart
 import 'package:flutter/foundation.dart';
@@ -589,13 +589,13 @@ class HomeWidgetService {
 }
 ```
 
-- [ ] **Step 4: Chạy lại test để xác nhận test pass**
+- [x] **Step 4: Chạy lại test để xác nhận test pass**
 ```bash
 flutter test test/home_widget_service_test.dart
 ```
 Expected: PASS (all 3 tests pass).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 ```bash
 git add lib/core/services/home_widget_service.dart test/home_widget_service_test.dart
 git commit -m "feat(widget): implement HomeWidgetService with unit tests"
@@ -608,7 +608,7 @@ git commit -m "feat(widget): implement HomeWidgetService with unit tests"
 **Files:**
 - Modify: `lib/screens/remote/remote_screen.dart`
 
-- [ ] **Step 1: Khởi tạo HomeWidgetService và gắn listener trong `initState`**
+- [x] **Step 1: Khởi tạo HomeWidgetService và gắn listener trong `initState`**
 Trong `lib/screens/remote/remote_screen.dart`:
 Khởi tạo instance:
 ```dart
@@ -627,7 +627,7 @@ Trong `dispose`:
     _homeWidgetService.unregisterActionListener();
 ```
 
-- [ ] **Step 2: Thêm hàm `_syncWidgetState` và `_handleWidgetQuickApprove`**
+- [x] **Step 2: Thêm hàm `_syncWidgetState` và `_handleWidgetQuickApprove`**
 Trong `_RemoteScreenState`:
 ```dart
   void _syncWidgetState({required String status, String? preview}) {
@@ -668,7 +668,7 @@ Trong `_RemoteScreenState`:
   }
 ```
 
-- [ ] **Step 3: Gọi `_syncWidgetState` khi các sự kiện AI xảy ra**
+- [x] **Step 3: Gọi `_syncWidgetState` khi các sự kiện AI xảy ra**
 - Trong `_onUserPromptSubmitted`:
   `_syncWidgetState(status: 'generating', preview: '⚡ Đang gửi prompt tới Antigravity...');`
 - Trong `_onAITokenStreaming`:
@@ -678,14 +678,14 @@ Trong `_RemoteScreenState`:
 - Trong `_checkInstanceDisconnection`:
   `_syncWidgetState(status: 'offline', preview: 'Máy tính đã ngắt kết nối');`
 
-- [ ] **Step 4: Chạy toàn bộ test suite để đảm bảo không có regression**
+- [x] **Step 4: Chạy toàn bộ test suite để đảm bảo không có regression**
 ```bash
 flutter analyze
 flutter test
 ```
 Expected: 0 issues, all tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 ```bash
 git add lib/screens/remote/remote_screen.dart
 git commit -m "feat(remote): integrate HomeWidgetService with quick approve DOM injection"
@@ -698,7 +698,7 @@ git commit -m "feat(remote): integrate HomeWidgetService with quick approve DOM 
 **Files:**
 - Device target: `21081111RG` (Xiaomi 11T, HyperOS / Android 14)
 
-- [ ] **Step 1: Build Debug APK**
+- [x] **Step 1: Build Debug APK**
 ```bash
 flutter build apk --debug
 ```
