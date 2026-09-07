@@ -27,16 +27,13 @@ class HeartbeatService {
     return 'https://antigravity.google.com/r/$cleanId';
   }
 
-  /// Đánh giá trạng thái nhanh (fallback) dựa trên cờ ngắt kết nối và thời gian truy cập gần nhất.
+  /// Đánh giá trạng thái nhanh (fallback) dựa trên cờ ngắt kết nối thực tế.
+  /// Nếu phiên chưa từng bị đánh dấu ngắt kết nối ('instance disconnected'), mặc định là online.
   static DeviceStatus evaluateSessionStatus(RemoteSession session) {
     if (session.isDisconnected) {
       return DeviceStatus.offline;
     }
-    final diff = DateTime.now().difference(session.lastAccessedAt);
-    if (diff.inMinutes < 20) {
-      return DeviceStatus.online;
-    }
-    return DeviceStatus.offline;
+    return DeviceStatus.online;
   }
 
   /// Thực hiện probe thực tế tới máy chủ Google và phiên WebSocket thông qua HeadlessInAppWebView

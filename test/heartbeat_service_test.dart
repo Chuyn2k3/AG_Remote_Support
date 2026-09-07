@@ -47,18 +47,18 @@ void main() {
     expect(status, DeviceStatus.online);
   });
 
-  test('HeartbeatService evaluateSessionStatus returns offline if last accessed > 20 mins ago', () {
+  test('HeartbeatService evaluateSessionStatus returns online if isDisconnected is false even if accessed long ago', () {
     final session = RemoteSession(
-      id: 'expired-session',
-      rawUrl: 'https://antigravity.google.com/r/expired-session-v2',
-      title: 'Expired Session',
+      id: 'active-session',
+      rawUrl: 'https://antigravity.google.com/r/active-session-v2',
+      title: 'Active Session',
       createdAt: DateTime.now().subtract(const Duration(hours: 2)),
       lastAccessedAt: DateTime.now().subtract(const Duration(minutes: 25)),
       isDisconnected: false,
     );
 
     final status = HeartbeatService.evaluateSessionStatus(session);
-    expect(status, DeviceStatus.offline);
+    expect(status, DeviceStatus.online);
   });
 
   test('DeviceStatus enum has all required states', () {

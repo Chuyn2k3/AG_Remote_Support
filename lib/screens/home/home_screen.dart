@@ -29,7 +29,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   late List<RemoteSession> _sessions;
   late final BiometricService _biometricService;
   Map<String, DeviceStatus> _deviceStatuses = {};
@@ -37,15 +37,37 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _biometricService = widget.biometricService ?? BiometricService();
     _loadSessions();
     _initDeviceStatusesCacheFirst();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _refreshDeviceStatuses(showCheckingIndicator: false);
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadSessions();
+      _refreshDeviceStatuses(showCheckingIndicator: false);
+    }
   }
 
   void _initDeviceStatusesCacheFirst() {
     final Map<String, DeviceStatus> initialStatuses = {};
     for (final s in _sessions) {
-      initialStatuses[s.id] = HeartbeatService.evaluateSessionStatus(s);
+      if (s.isDisconnected) {
+        initialStatuses[s.id] = DeviceStatus.offline;
+      } else {
+        initialStatuses[s.id] = DeviceStatus.online;
+      }
     }
     setState(() {
       _deviceStatuses = initialStatuses;
@@ -70,22 +92,31 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  Future<void> _refreshDeviceStatuses() async {
+  Future<void> _refreshDeviceStatuses({bool showCheckingIndicator = true}) async {
     if (_sessions.isEmpty) return;
-    setState(() {
-      for (final s in _sessions) {
-        _deviceStatuses[s.id] = DeviceStatus.checking;
+    if (showCheckingIndicator) {
+      setState(() {
+        for (final s in _sessions) {
+          _deviceStatuses[s.id] = DeviceStatus.checking;
+        }
+      });
+    }
+
+    final futures = _sessions.map((session) async {
+      final status = await HeartbeatService.probeSession(
+        session,
+        storageService: widget.storageService,
+      );
+      if (mounted) {
+        setState(() {
+          _deviceStatuses[session.id] = status;
+        });
       }
+      return MapEntry(session.id, status);
     });
 
-    final statuses = await HeartbeatService.pingAll(
-      _sessions,
-      storageService: widget.storageService,
-    );
+    await Future.wait(futures);
     if (mounted) {
-      setState(() {
-        _deviceStatuses = statuses;
-      });
       _loadSessions();
     }
   }
@@ -149,6 +180,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ).then((_) {
         _loadSessions();
         _initDeviceStatusesCacheFirst();
+        _refreshDeviceStatuses(showCheckingIndicator: false);
       });
     }
   }
@@ -851,6 +883,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           ).then((_) {
                             _loadSessions();
                             _initDeviceStatusesCacheFirst();
+                            _refreshDeviceStatuses(showCheckingIndicator: false);
                           });
                         },
                         onOpenInBrowser: () async {
