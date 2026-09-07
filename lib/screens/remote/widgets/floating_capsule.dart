@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/theme/app_colors.dart';
@@ -77,45 +76,33 @@ class _FloatingCapsuleState extends State<FloatingCapsule> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(_isMini ? 20 : 24),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 220),
-                    curve: Curves.easeOutCubic,
-                    padding: EdgeInsets.symmetric(
-                      horizontal: _isMini ? 6 : 6,
-                      vertical: _isMini ? 4 : 5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF16161A).withOpacity(0.88),
-                      borderRadius: BorderRadius.circular(_isMini ? 20 : 24),
-                      border: Border.all(
-                        color: Colors.white.withOpacity(0.18),
-                        width: 0.8,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.4),
-                          blurRadius: 18,
-                          offset: const Offset(0, 5),
-                        ),
-                      ],
-                    ),
-                    child: _isMini ? _buildMiniView() : _buildExpandedView(),
-                  ),
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                padding: EdgeInsets.symmetric(
+                  horizontal: _isMini ? 6 : 6,
+                  vertical: _isMini ? 4 : 5,
                 ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF16161A).withOpacity(0.96),
+                  borderRadius: BorderRadius.circular(_isMini ? 20 : 24),
+                  border: Border.all(
+                    color: Colors.white.withOpacity(0.18),
+                    width: 0.8,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.4),
+                      blurRadius: 18,
+                      offset: const Offset(0, 5),
+                    ),
+                  ],
+                ),
+                child: _isMini ? _buildMiniView() : _buildExpandedView(),
               ),
               if (!_isMini && _showMore) ...[
                 const SizedBox(height: 6),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                    child: _buildMoreMenu(),
-                  ),
-                ),
+                _buildMoreMenu(),
               ],
             ],
           ),
@@ -341,7 +328,7 @@ class _FloatingCapsuleState extends State<FloatingCapsule> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       decoration: BoxDecoration(
-        color: const Color(0xFF16161A).withOpacity(0.92),
+        color: const Color(0xFF16161A).withOpacity(0.96),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: Colors.white.withOpacity(0.16),
