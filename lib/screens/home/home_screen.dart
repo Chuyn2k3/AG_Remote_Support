@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../../core/services/biometric_service.dart';
 import '../../core/services/heartbeat_service.dart';
+import '../../core/services/home_widget_service.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/url_parser.dart';
@@ -33,6 +35,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   late List<RemoteSession> _sessions;
   late final BiometricService _biometricService;
   Map<String, DeviceStatus> _deviceStatuses = {};
+  StreamSubscription<String>? _widgetActionSub;
 
   @override
   void initState() {
@@ -41,13 +44,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _biometricService = widget.biometricService ?? BiometricService();
     _loadSessions();
     _initDeviceStatusesCacheFirst();
+    _widgetActionSub = HomeWidgetService().actionStream.listen((action) {
+      if (action == 'approve') {
+        _handleWidgetApproveFromHome();
+      }
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _refreshDeviceStatuses(showCheckingIndicator: false);
+      HomeWidgetService().checkInitialAction();
     });
   }
 
   @override
   void dispose() {
+    _widgetActionSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -57,7 +67,37 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       _loadSessions();
       _refreshDeviceStatuses(showCheckingIndicator: false);
+      HomeWidgetService().checkInitialAction();
     }
+  }
+
+  void _handleWidgetApproveFromHome() {
+    if (HomeWidgetService().isRemoteScreenActive) return;
+    if (_sessions.isEmpty) return;
+
+    RemoteSession? target;
+    for (final s in _sessions) {
+      if (_deviceStatuses[s.id] == DeviceStatus.online) {
+        target = s;
+        break;
+      }
+    }
+    target ??= _sessions.first;
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RemoteScreen(
+          session: target!,
+          storageService: widget.storageService,
+          autoApprove: true,
+        ),
+      ),
+    ).then((_) {
+      _loadSessions();
+      _initDeviceStatusesCacheFirst();
+      _refreshDeviceStatuses(showCheckingIndicator: false);
+    });
   }
 
   void _initDeviceStatusesCacheFirst() {

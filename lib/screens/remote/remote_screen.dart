@@ -154,6 +154,8 @@ const String _aiObserverScript = r'''
     } catch(e) {}
   }
 
+  window.__agTriggerUserSent = notifyPromptSent;
+
   window.addEventListener('keydown', function(e) {
     if ((e.key === 'Enter' || e.keyCode === 13 || e.which === 13) && !e.shiftKey) {
       notifyPromptSent();
@@ -300,11 +302,13 @@ class _TabState {
 class RemoteScreen extends StatefulWidget {
   final RemoteSession session;
   final StorageService? storageService;
+  final bool autoApprove;
 
   const RemoteScreen({
     super.key,
     required this.session,
     this.storageService,
+    this.autoApprove = false,
   });
 
   @override
@@ -317,6 +321,7 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
   int _activeTabIndex = 0;
   bool _isSplitScreen = false;
   bool _isLandscape = false;
+  bool _hasAutoApproved = false;
 
   // Convenience getters trỏ vào tab đang active
   _TabState get _activeTab => _tabs[_activeTabIndex];
@@ -378,6 +383,7 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
     _notificationService.init();
     _checkBubbleStatus();
 
+    _homeWidgetService.isRemoteScreenActive = true;
     // Lắng nghe hành động Duyệt/Tiếp tục từ Home Widget
     _homeWidgetService.registerActionListener((action) {
       if (action == 'approve') {
@@ -386,6 +392,17 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
     });
     // Đồng bộ trạng thái ban đầu của Widget
     _syncWidgetState(status: 'idle', preview: 'Sẵn sàng làm việc với Antigravity 2.0');
+
+    if (widget.autoApprove) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Future.delayed(const Duration(milliseconds: 2000), () {
+          if (mounted && !_hasAutoApproved) {
+            _hasAutoApproved = true;
+            _handleWidgetQuickApprove();
+          }
+        });
+      });
+    }
   }
 
   @override
@@ -414,26 +431,188 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
 
   Future<void> _handleWidgetQuickApprove() async {
     final controller = _activeTab.controller;
-    if (controller == null) return;
+    if (controller == null) {
+      debugPrint('[RemoteScreen] _handleWidgetQuickApprove: controller is null');
+      return;
+    }
     try {
-      await controller.evaluateJavascript(source: '''
+      final dynamic result = await controller.evaluateJavascript(source: '''
         (function() {
-          const btns = document.querySelectorAll('button, [role="button"]');
-          for (let b of btns) {
-            const t = (b.innerText || b.getAttribute('aria-label') || '').toLowerCase();
-            if (t.includes('approve') || t.includes('duyệt') || t.includes('allow') || t.includes('confirm') || t.includes('tiếp tục')) {
-              b.click();
-              return 'clicked_button';
+          function isVisible(el) {
+            try {
+              return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+            } catch(e) {
+              return true;
             }
           }
-          if (window.__agTriggerUserSent) {
-            window.__agTriggerUserSent();
-            return 'triggered_user_sent';
+
+          const approveKeywords = [
+            'approve', 'duyệt', 'tiếp tục', 'proceed', 'allow', 'cho phép',
+            'always allow', 'confirm', 'xác nhận', 'run', 'chạy', 'execute',
+            'yes', 'đồng ý', 'accept', 'apply', 'continue'
+          ];
+          const excludeKeywords = ['cancel', 'hủy', 'abort', 'reject', 'từ chối', 'stop', 'dừng', 'close', 'đóng'];
+
+          function matchesKeyword(text, list) {
+            const lower = text.toLowerCase();
+            return list.some(kw => lower.includes(kw));
           }
-          return 'none';
+
+          // Phase 1: Search for approval buttons across all frames
+          function findAndClickApproveButton(rootWin) {
+            try {
+              const doc = rootWin.document;
+              if (!doc) return null;
+
+              const allButtons = Array.from(doc.querySelectorAll(
+                'button, [role="button"], mwc-button, md-filled-button, md-outlined-button, a[role="button"], input[type="button"], input[type="submit"], .monaco-button'
+              ));
+
+              for (const btn of allButtons) {
+                if (!isVisible(btn)) continue;
+                const text = [
+                  btn.innerText || '',
+                  btn.getAttribute('aria-label') || '',
+                  btn.getAttribute('title') || '',
+                  btn.getAttribute('data-tooltip') || ''
+                ].join(' ').trim();
+
+                if (text.length > 0 && matchesKeyword(text, approveKeywords) && !matchesKeyword(text, excludeKeywords)) {
+                  btn.click();
+                  return 'clicked_approve: ' + text.substring(0, 50);
+                }
+              }
+
+              // Check iframes recursively
+              const iframes = Array.from(doc.querySelectorAll('iframe'));
+              for (const f of iframes) {
+                try {
+                  const idoc = f.contentDocument || (f.contentWindow && f.contentWindow.document);
+                  if (idoc) {
+                    const iwin = f.contentWindow || f;
+                    const res = findAndClickApproveButton(iwin);
+                    if (res) return res;
+                  }
+                } catch(e) {}
+              }
+            } catch(e) {}
+            return null;
+          }
+
+          // Phase 2: Find chat input and type "tiếp tục" + send
+          function findAndSendContinuePrompt(rootWin) {
+            try {
+              const doc = rootWin.document;
+              if (!doc) return null;
+
+              const inputCandidates = [
+                doc.querySelector('textarea:not([disabled])'),
+                doc.querySelector('[contenteditable="true"]'),
+                doc.querySelector('[role="textbox"]'),
+                doc.querySelector('.interactive-input-editor textarea'),
+                doc.querySelector('.monaco-editor textarea'),
+                doc.querySelector('.chat-input textarea'),
+                doc.querySelector('mwc-textarea textarea'),
+                doc.querySelector('[data-role="user-input"]'),
+                doc.querySelector('input[type="text"]:not([disabled])')
+              ];
+
+              const target = inputCandidates.find(el => el !== null && isVisible(el)) || inputCandidates.find(el => el !== null);
+
+              if (target) {
+                target.focus();
+                const textToSend = 'tiếp tục';
+                if (target.isContentEditable) {
+                  target.innerText = textToSend;
+                } else {
+                  target.value = textToSend;
+                }
+                target.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+                target.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+
+                setTimeout(() => {
+                  const sendBtn = doc.querySelector(
+                    'button[aria-label*="Send" i], button[aria-label*="Gửi" i], ' +
+                    '[data-test-id="send-button"], button[type="submit"], ' +
+                    '.send-button, [class*="send"], [class*="submit"], ' +
+                    'button.monaco-button[title*="Send" i]'
+                  );
+                  if (sendBtn && isVisible(sendBtn)) {
+                    sendBtn.click();
+                  } else {
+                    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, composed: true }));
+                    target.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, composed: true }));
+                  }
+                  try {
+                    if (rootWin.__agTriggerUserSent) rootWin.__agTriggerUserSent();
+                    if (window.__agTriggerUserSent) window.__agTriggerUserSent();
+                  } catch(e) {}
+                }, 200);
+
+                return 'injected_continue_prompt';
+              }
+
+              // Check iframes for input
+              const iframes = Array.from(doc.querySelectorAll('iframe'));
+              for (const f of iframes) {
+                try {
+                  const idoc = f.contentDocument || (f.contentWindow && f.contentWindow.document);
+                  if (idoc) {
+                    const iwin = f.contentWindow || f;
+                    const res = findAndSendContinuePrompt(iwin);
+                    if (res) return res;
+                  }
+                } catch(e) {}
+              }
+            } catch(e) {}
+            return null;
+          }
+
+          // 1. Try approving first
+          const approveResult = findAndClickApproveButton(window);
+          if (approveResult) return approveResult;
+
+          // 2. Fall back to sending "tiếp tục" prompt
+          const promptResult = findAndSendContinuePrompt(window);
+          if (promptResult) return promptResult;
+
+          return 'not_found';
         })();
       ''');
-      _onUserPromptSubmitted(_activeTab.session.title, 'Widget Quick Approve');
+
+      debugPrint('[RemoteScreen] Widget action result: $result');
+      final str = result?.toString() ?? 'not_found';
+      if (str.startsWith('clicked_approve') || str == 'injected_continue_prompt') {
+        _onUserPromptSubmitted(_activeTab.session.title, 'Widget Action: $str');
+        _syncWidgetState(
+          status: 'generating',
+          preview: str.startsWith('clicked_approve')
+              ? '⚡ Đã duyệt yêu cầu: ${str.replaceFirst('clicked_approve: ', '')}'
+              : '⚡ Đã gửi prompt "tiếp tục" tới Antigravity',
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              duration: const Duration(seconds: 2),
+              content: Text(
+                str.startsWith('clicked_approve')
+                    ? '⚡ Đã duyệt yêu cầu thành công!'
+                    : '⚡ Đã gửi lệnh "tiếp tục" tới Antigravity!',
+              ),
+            ),
+          );
+        }
+      } else {
+        _syncWidgetState(status: 'idle', preview: 'Không tìm thấy nút duyệt hoặc ô chat');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              duration: Duration(seconds: 2),
+              content: Text('⚠️ Không tìm thấy nút duyệt hoặc ô chat trên màn hình'),
+            ),
+          );
+        }
+      }
     } catch (e) {
       debugPrint('[RemoteScreen] Widget approve error: $e');
     }
@@ -859,6 +1038,7 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
     _aiStreamDebounceTimer?.cancel();
     _speechService.cancelListening();
     _nativeBubbleService.stopForegroundWatcher();
+    _homeWidgetService.isRemoteScreenActive = false;
     _homeWidgetService.unregisterActionListener();
     WakelockService.disable();
     // Khóa lại portrait khi rời màn hình WebView
@@ -1590,6 +1770,14 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
             _injectAIResponseObserver(controller);
           }
         });
+        if (widget.autoApprove && !_hasAutoApproved && tabIndex == _activeTabIndex) {
+          _hasAutoApproved = true;
+          Future.delayed(const Duration(milliseconds: 1200), () {
+            if (mounted) {
+              _handleWidgetQuickApprove();
+            }
+          });
+        }
       },
       shouldOverrideUrlLoading: (controller, navigationAction) async {
         final uri = navigationAction.request.url;

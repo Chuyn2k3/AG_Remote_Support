@@ -61,4 +61,35 @@ void main() {
     service.handleActionFromPlatform('approve');
     expect(capturedAction, 'approve');
   });
+
+  test('actionStream emits actions to broadcast subscribers', () async {
+    final List<String> streamActions = [];
+    final sub = service.actionStream.listen(streamActions.add);
+
+    service.handleActionFromPlatform('approve');
+    service.handleActionFromPlatform('refresh');
+
+    await Future.delayed(Duration.zero);
+    expect(streamActions, ['approve', 'refresh']);
+    await sub.cancel();
+  });
+
+  test('checkInitialAction dispatches action when platform returns non-null', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      const MethodChannel('dev.antigravity.remote/home_widget'),
+      (MethodCall methodCall) async {
+        if (methodCall.method == 'getInitialAction') {
+          return 'approve';
+        }
+        return null;
+      },
+    );
+
+    String? capturedAction;
+    service.registerActionListener((action) => capturedAction = action);
+
+    await service.checkInitialAction();
+    expect(capturedAction, 'approve');
+  });
 }

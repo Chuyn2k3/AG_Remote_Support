@@ -56,6 +56,15 @@ class MainActivity : FlutterFragmentActivity() {
                     AntigravityWidgetProvider.updateAllWidgets(applicationContext)
                     result.success(true)
                 }
+                "getInitialAction" -> {
+                    val autoApprove = intent?.getBooleanExtra("AUTO_APPROVE", false) ?: false
+                    if (autoApprove) {
+                        intent?.removeExtra("AUTO_APPROVE")
+                        result.success("approve")
+                    } else {
+                        result.success(null)
+                    }
+                }
                 else -> result.notImplemented()
             }
         }
@@ -180,5 +189,15 @@ class MainActivity : FlutterFragmentActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val autoApprove = intent.getBooleanExtra("AUTO_APPROVE", false)
+        if (autoApprove) {
+            intent.removeExtra("AUTO_APPROVE")
+            sendWidgetActionToFlutter("approve")
+        }
     }
 }
