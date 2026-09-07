@@ -15,6 +15,7 @@ import '../../core/services/speech_service.dart';
 import '../../core/services/notification_service.dart';
 import '../../core/services/native_bubble_service.dart';
 import '../../core/services/app_lifecycle_service.dart';
+import '../../core/services/home_widget_service.dart';
 import 'session_tab_bar.dart';
 import 'widgets/floating_capsule.dart';
 import 'widgets/voice_prompt_modal.dart';
@@ -336,6 +337,7 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
   final SpeechService _speechService = SpeechService();
   final NotificationService _notificationService = NotificationService();
   final NativeBubbleService _nativeBubbleService = NativeBubbleService();
+  final HomeWidgetService _homeWidgetService = HomeWidgetService();
   bool _bubbleActive = false;
 
   // ── AI Response Watcher state (Dart Poller & Console Event Bus) ──────────
@@ -375,6 +377,15 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
     // Khởi tạo notification service
     _notificationService.init();
     _checkBubbleStatus();
+
+    // Lắng nghe hành động Duyệt/Tiếp tục từ Home Widget
+    _homeWidgetService.registerActionListener((action) {
+      if (action == 'approve') {
+        _handleWidgetQuickApprove();
+      }
+    });
+    // Đồng bộ trạng thái ban đầu của Widget
+    _syncWidgetState(status: 'idle', preview: 'Sẵn sàng làm việc với Antigravity 2.0');
   }
 
   @override
@@ -388,6 +399,43 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
     final showing = await _nativeBubbleService.isBubbleShowing();
     if (mounted && showing != _bubbleActive) {
       setState(() => _bubbleActive = showing);
+    }
+  }
+
+  void _syncWidgetState({required String status, String? preview}) {
+    if (_tabs.isEmpty) return;
+    final sessionTitle = _activeTab.session.title;
+    _homeWidgetService.updateWidgetFeed(
+      sessionTitle: sessionTitle,
+      status: status,
+      preview: preview ?? 'Đang kết nối tới Antigravity Desktop...',
+    );
+  }
+
+  Future<void> _handleWidgetQuickApprove() async {
+    final controller = _activeTab.controller;
+    if (controller == null) return;
+    try {
+      await controller.evaluateJavascript(source: '''
+        (function() {
+          const btns = document.querySelectorAll('button, [role="button"]');
+          for (let b of btns) {
+            const t = (b.innerText || b.getAttribute('aria-label') || '').toLowerCase();
+            if (t.includes('approve') || t.includes('duyệt') || t.includes('allow') || t.includes('confirm') || t.includes('tiếp tục')) {
+              b.click();
+              return 'clicked_button';
+            }
+          }
+          if (window.__agTriggerUserSent) {
+            window.__agTriggerUserSent();
+            return 'triggered_user_sent';
+          }
+          return 'none';
+        })();
+      ''');
+      _onUserPromptSubmitted(_activeTab.session.title, 'Widget Quick Approve');
+    } catch (e) {
+      debugPrint('[RemoteScreen] Widget approve error: $e');
     }
   }
 
@@ -433,6 +481,10 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
             _isInstanceDisconnected = isDisconnected;
           });
         }
+        _syncWidgetState(
+          status: isDisconnected ? 'offline' : 'idle',
+          preview: isDisconnected ? 'Máy tính đã ngắt kết nối' : 'Đã kết nối Antigravity',
+        );
         _activeTab.session.isDisconnected = isDisconnected; _activeTab.isDisconnected = isDisconnected;
         if (!isDisconnected) {
           _activeTab.session.lastAccessedAt = DateTime.now();
@@ -441,6 +493,10 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
       } else if (!isDisconnected && _activeTab.session.isDisconnected) {
         _activeTab.session.isDisconnected = false; _activeTab.isDisconnected = false;
         _activeTab.session.lastAccessedAt = DateTime.now();
+        _syncWidgetState(
+          status: 'idle',
+          preview: 'Đã kết nối Antigravity',
+        );
         await _saveSessionState();
       }
     } catch (e) {
@@ -606,6 +662,7 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
     _aiStreamDebounceTimer?.cancel(); // Hủy mọi debounce timer trước đó
     _aiStreamDebounceTimer = null;
 
+    _syncWidgetState(status: 'generating', preview: '⚡ Đang gửi prompt tới Antigravity...');
     _nativeBubbleService.startForegroundWatcher(title: sessionTitle);
     _nativeBubbleService.updateBubbleStatus('thinking');
     if (mounted) setState(() {});
@@ -618,6 +675,10 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
     _aiNotified = false;
     _aiLastActivityTime = DateTime.now();
     _resetStreamDebounceTimer(sessionTitle);
+    _syncWidgetState(
+      status: 'streaming',
+      preview: _aiLastPreview.isNotEmpty ? _aiLastPreview : 'Đang sinh phản hồi...',
+    );
     if (mounted) setState(() {});
   }
 
@@ -652,6 +713,11 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
     final sendPreview = (preview != null && preview.trim().isNotEmpty)
         ? preview.trim()
         : (_aiLastPreview.isNotEmpty ? _aiLastPreview : 'Antigravity đã hoàn thành phản hồi.');
+
+    _syncWidgetState(
+      status: 'idle',
+      preview: sendPreview,
+    );
 
     await _notificationService.showAICompletedNotification(
       sessionName: sessionTitle,
@@ -793,6 +859,7 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
     _aiStreamDebounceTimer?.cancel();
     _speechService.cancelListening();
     _nativeBubbleService.stopForegroundWatcher();
+    _homeWidgetService.unregisterActionListener();
     WakelockService.disable();
     // Khóa lại portrait khi rời màn hình WebView
     SystemChrome.setPreferredOrientations([
