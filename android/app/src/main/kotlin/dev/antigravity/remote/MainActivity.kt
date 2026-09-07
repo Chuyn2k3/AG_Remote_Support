@@ -1,5 +1,6 @@
 package dev.antigravity.remote
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -14,10 +15,50 @@ class MainActivity : FlutterFragmentActivity() {
         const val LIFECYCLE_CHANNEL = "dev.antigravity.remote/app_lifecycle"
         const val BUBBLE_CHANNEL = "dev.antigravity.remote/floating_bubble"
         const val SECURITY_CHANNEL = "dev.antigravity.remote/security"
+        const val WIDGET_CHANNEL = "dev.antigravity.remote/home_widget"
+
+        var widgetChannel: MethodChannel? = null
+
+        fun sendWidgetActionToFlutter(action: String): Boolean {
+            val channel = widgetChannel ?: return false
+            channel.invokeMethod("onWidgetAction", mapOf("action" to action))
+            return true
+        }
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        super.cleanUpFlutterEngine(flutterEngine)
+        widgetChannel = null
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        // 0. Home Widget Channel
+        val widgetChan = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, WIDGET_CHANNEL)
+        widgetChannel = widgetChan
+        widgetChan.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "updateWidgetData" -> {
+                    val title = call.argument<String>("sessionTitle") ?: "Antigravity Desktop"
+                    val status = call.argument<String>("status") ?: "idle"
+                    val preview = call.argument<String>("preview") ?: ""
+                    val updatedAt = call.argument<String>("updatedAt") ?: "Vừa cập nhật"
+
+                    val prefs = getSharedPreferences(AntigravityWidgetProvider.PREFS_NAME, Context.MODE_PRIVATE)
+                    prefs.edit()
+                        .putString(AntigravityWidgetProvider.KEY_SESSION_TITLE, title)
+                        .putString(AntigravityWidgetProvider.KEY_STATUS, status)
+                        .putString(AntigravityWidgetProvider.KEY_PREVIEW, preview)
+                        .putString(AntigravityWidgetProvider.KEY_UPDATED_AT, updatedAt)
+                        .apply()
+
+                    AntigravityWidgetProvider.updateAllWidgets(applicationContext)
+                    result.success(true)
+                }
+                else -> result.notImplemented()
+            }
+        }
 
         // 1. App Lifecycle Channel
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, LIFECYCLE_CHANNEL)

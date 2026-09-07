@@ -61,6 +61,27 @@
             android:name=".ForegroundWatcherService"
             android:exported="false"
             android:foregroundServiceType="specialUse" />
+
+        <!-- Android Home Screen Widget Provider -->
+        <receiver
+            android:name=".AntigravityWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_agent_feed_info" />
+        </receiver>
+
+        <!-- Widget Quick Action Broadcast Receiver -->
+        <receiver
+            android:name=".WidgetActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="dev.antigravity.remote.ACTION_WIDGET_APPROVE" />
+            </intent-filter>
+        </receiver>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
