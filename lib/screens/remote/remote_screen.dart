@@ -977,10 +977,12 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
               Positioned.fill(
                 child: _isSplitScreen && _tabs.length >= 2
                     ? _buildSplitView(isDark, primaryColor)
-                    : IndexedStack(
-                        index: _activeTabIndex,
-                        children: List.generate(_tabs.length, (i) => _buildTabWebView(i)),
-                      ),
+                    : (_tabs.length == 1
+                        ? _buildTabWebView(0)
+                        : IndexedStack(
+                            index: _activeTabIndex,
+                            children: List.generate(_tabs.length, (i) => _buildTabWebView(i)),
+                          )),
               ),
 
               // Thin 2px Linear Progress Indicator at top (Apple Blue) - Scoped with ValueListenableBuilder
@@ -1279,13 +1281,13 @@ class _RemoteScreenState extends State<RemoteScreen> with WidgetsBindingObserver
         clearCache: false,
         supportMultipleWindows: false,
         javaScriptCanOpenWindowsAutomatically: false,
-        mixedContentMode: MixedContentMode.MIXED_CONTENT_NEVER_ALLOW,
+        mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
         useHybridComposition: true, // SurfaceView chuẩn — MIUI GuiExtAux xử lý đúng, không gây Null ANativeBuffer
         transparentBackground: false, // Nền đặc tránh lộ buffer đen của SurfaceView native
         requestedWithHeaderOriginAllowList: <String>{},
         allowFileAccessFromFileURLs: false,
         allowUniversalAccessFromFileURLs: false,
-        allowContentAccess: false,
+        allowContentAccess: true,
         allowBackgroundAudioPlaying: true,
       ),
       onWebViewCreated: (controller) {
